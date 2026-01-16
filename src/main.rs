@@ -1,5 +1,6 @@
 mod config;
 mod event;
+mod llm;
 mod tui;
 
 use crate::event::{Event, EventResult};
@@ -23,13 +24,24 @@ use tokio::time::interval;
 #[tokio::main]
 async fn main() -> Result<()> {
     // Load or create configuration
-    let _config = config::load_or_create_config()?;
+    let config = config::load_or_create_config()?;
+
+    // Get default station
+    let station = config
+        .stations
+        .iter()
+        .find(|s| s.id == config.default_station)
+        .ok_or_else(|| anyhow::anyhow!("Default station '{}' not found", config.default_station))?
+        .clone();
+
+    // Create LLM client
+    let llm_client = llm::anthropic::AnthropicClient::new(station);
 
     // Setup terminal
     let mut terminal = setup_terminal()?;
 
     // Create app state
-    let mut app = App::new();
+    let mut app = App::new(llm_client);
 
     // Run the application
     let result = run_app(&mut terminal, &mut app).await;
@@ -99,6 +111,10 @@ async fn run_app(
 
             // Handle tick events
             _ = tick_interval.tick() => {
+                // Poll for streaming chunks
+                while let Some(chunk) = app.poll_stream() {
+                    app.handle_stream_chunk(chunk);
+                }
                 app.handle_event(Event::Tick)?;
             }
         }
