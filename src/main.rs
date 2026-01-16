@@ -1,3 +1,4 @@
+mod config;
 mod event;
 mod tui;
 
@@ -21,6 +22,9 @@ use tokio::time::interval;
 /// Main entry point
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load or create configuration
+    let _config = config::load_or_create_config()?;
+
     // Setup terminal
     let mut terminal = setup_terminal()?;
 
