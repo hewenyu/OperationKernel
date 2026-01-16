@@ -243,6 +243,7 @@ impl MessageList {
     }
 
     /// Check if currently at the bottom
+    #[allow(dead_code)]
     pub fn is_at_bottom(&self) -> bool {
         let total_height = self.calculate_total_height(self.viewport_height.max(1));
         if total_height <= self.viewport_height {
@@ -264,11 +265,13 @@ impl MessageList {
     }
 
     /// Check if the list is empty
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.messages.is_empty()
     }
 
     /// Clear all messages
+    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.messages.clear();
         self.scroll_offset = 0;

@@ -12,9 +12,11 @@ pub enum MessageRole {
 /// Represents a single chat message in the conversation
 #[derive(Debug, Clone)]
 pub struct ChatMessage {
+    #[allow(dead_code)]
     pub id: usize,
     pub role: MessageRole,
     pub content: String,
+    #[allow(dead_code)]
     pub timestamp: DateTime<Local>,
     pub is_complete: bool,  // false indicates streaming in progress
 }
@@ -75,6 +77,7 @@ impl ChatMessage {
     }
 
     /// Get formatted timestamp
+    #[allow(dead_code)]
     pub fn formatted_timestamp(&self) -> String {
         self.timestamp.format("%H:%M:%S").to_string()
     }
