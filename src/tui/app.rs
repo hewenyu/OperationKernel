@@ -5,7 +5,7 @@ use crate::tui::{ChatMessage, InputWidget, MessageList};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -282,11 +282,19 @@ impl App {
 
     /// Render chat history
     fn render_chat(&mut self, frame: &mut Frame, area: Rect) {
+        use ratatui::widgets::BorderType;
+        
         // Create a block for the chat area
         let block = Block::default()
             .borders(Borders::ALL)
-            .title("Chat History")
-            .border_style(Style::default().fg(Color::White));
+            .border_type(BorderType::Rounded)  // Unified rounded borders
+            .title(Span::styled(
+                " 💬 Chat History ",
+                Style::default()
+                    .fg(Color::LightBlue)
+                    .add_modifier(Modifier::BOLD)
+            ))
+            .border_style(Style::default().fg(Color::DarkGray));  // Subtle border color
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -297,23 +305,35 @@ impl App {
 
     /// Render status bar
     fn render_status(&self, frame: &mut Frame, area: Rect) {
+        use ratatui::widgets::BorderType;
+        
         let status_text = vec![Line::from(vec![
-            Span::styled("Status: ", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                if self.is_loading { "⚡ " } else { "✓ " },
+                Style::default().fg(if self.is_loading { Color::Yellow } else { Color::Green })
+            ),
+            Span::styled("Status: ", Style::default().fg(Color::LightYellow)),
             Span::raw(if self.is_loading {
                 "Generating..."
             } else {
                 "Ready"
             }),
-            Span::raw(" | "),
-            Span::styled("Messages: ", Style::default().fg(Color::Cyan)),
+            Span::raw(" │ "),  // Visual separator
+            Span::styled("Messages: ", Style::default().fg(Color::LightCyan)),
             Span::raw(self.message_list.len().to_string()),
         ])];
 
         let status = Paragraph::new(status_text).block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Status")
-                .border_style(Style::default().fg(Color::White)),
+                .border_type(BorderType::Rounded)  // Unified rounded borders
+                .title(Span::styled(
+                    " 📊 Status ",
+                    Style::default()
+                        .fg(Color::LightBlue)
+                        .add_modifier(Modifier::BOLD)
+                ))
+                .border_style(Style::default().fg(Color::DarkGray)),
         );
 
         frame.render_widget(status, area);

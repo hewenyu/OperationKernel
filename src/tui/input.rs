@@ -1,8 +1,9 @@
 use crossterm::event::KeyEvent;
 use ratatui::{
     layout::Rect,
-    style::{Color, Style},
-    widgets::{Block, Borders},
+    style::{Color, Modifier, Style},
+    text::Span,
+    widgets::{Block, Borders, BorderType},
     Frame,
 };
 use tui_textarea::TextArea;
@@ -19,8 +20,14 @@ impl InputWidget {
         textarea.set_block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Input (Enter to send, Shift+Enter for new line)")
-                .border_style(Style::default().fg(Color::Blue)),
+                .border_type(BorderType::Rounded)  // Unified rounded borders
+                .title(Span::styled(
+                    " ✏️  Input (Enter=send │ Shift+Enter=newline) ",
+                    Style::default()
+                        .fg(Color::LightBlue)
+                        .add_modifier(Modifier::BOLD)
+                ))
+                .border_style(Style::default().fg(Color::DarkGray)),  // Subtle border
         );
         textarea.set_cursor_line_style(Style::default());
         textarea.set_cursor_style(Style::default());
@@ -40,8 +47,14 @@ impl InputWidget {
         self.textarea.set_block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Input (Enter to send, Shift+Enter for new line)")
-                .border_style(Style::default().fg(Color::Blue)),
+                .border_type(BorderType::Rounded)  // Unified rounded borders
+                .title(Span::styled(
+                    " ✏️  Input (Enter=send │ Shift+Enter=newline) ",
+                    Style::default()
+                        .fg(Color::LightBlue)
+                        .add_modifier(Modifier::BOLD)
+                ))
+                .border_style(Style::default().fg(Color::DarkGray)),  // Subtle border
         );
         text
     }

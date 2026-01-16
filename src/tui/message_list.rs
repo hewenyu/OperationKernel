@@ -45,10 +45,10 @@ impl MessageList {
     /// Calculate the height of a message when rendered
     fn calculate_message_height(&self, message: &ChatMessage, width: u16) -> u16 {
         let border_height = 2; // Top and bottom borders
-        let padding = 1; // Space for role prefix
+        let padding = 2; // Increased space for role prefix and breathing room
 
         // Calculate wrapped lines
-        let content_width = width.saturating_sub(4); // Account for borders and padding
+        let content_width = width.saturating_sub(6); // Account for borders and wider padding (3 chars each side)
         let wrapped_lines = self.wrap_text(&message.content, content_width as usize);
 
         let content_lines = wrapped_lines.len().max(1) as u16;
@@ -75,9 +75,9 @@ impl MessageList {
         let mut total = 0;
         for msg in &self.messages {
             total += self.calculate_message_height(msg, width);
-            total += 1; // Spacing between messages
+            total += 2; // Increased spacing between messages for better visual separation
         }
-        total.saturating_sub(1) // Remove last spacing
+        total.saturating_sub(2) // Remove last spacing
     }
 
     /// Render the message list
@@ -98,7 +98,7 @@ impl MessageList {
         for msg in &self.messages {
             let height = self.calculate_message_height(msg, width);
             message_positions.push((current_y, height));
-            current_y += height + 1; // +1 for spacing
+            current_y += height + 2; // +2 for increased spacing between messages
         }
 
         // Render only visible messages
@@ -133,40 +133,66 @@ impl MessageList {
 
     /// Render a single message with border
     fn render_message(&self, frame: &mut Frame, message: &ChatMessage, area: Rect) {
-        let (border_color, border_type, role_text) = match message.role {
-            MessageRole::User => (Color::Cyan, BorderType::Rounded, "You"),
-            MessageRole::Assistant => (Color::Green, BorderType::Double, "Assistant"),
-            MessageRole::System => (Color::Gray, BorderType::Plain, "System"),
-            MessageRole::Error => (Color::Red, BorderType::Thick, "Error"),
+        let (border_color, border_type, role_text, role_emoji) = match message.role {
+            MessageRole::User => (
+                Color::LightCyan,     // Bright cyan for better visibility
+                BorderType::Rounded,  // Unified rounded borders
+                "You",
+                "👤"                  // User icon
+            ),
+            MessageRole::Assistant => (
+                Color::LightGreen,    // Bright green for better visibility
+                BorderType::Rounded,  // Unified rounded borders
+                "AI",                 // Simplified label
+                "🤖"                  // AI icon
+            ),
+            MessageRole::System => (
+                Color::LightBlue,     // Light blue instead of gray for better visibility
+                BorderType::Rounded,  // Unified rounded borders
+                "System",
+                "ℹ️"                  // Info icon
+            ),
+            MessageRole::Error => (
+                Color::LightRed,      // Softer red for less eye strain
+                BorderType::Rounded,  // Unified rounded borders
+                "Error",
+                "⚠️"                  // Warning icon
+            ),
         };
 
         // Add cursor indicator for streaming messages
         let content = if !message.is_complete {
-            format!("{}▊", message.content)
+            if message.content.is_empty() {
+                "⋯".to_string()  // Show ellipsis while waiting for content
+            } else {
+                format!("{} ▌", message.content)  // Half-block cursor with space, more subtle
+            }
         } else {
             message.content.clone()
         };
 
         // Wrap content
-        let content_width = area.width.saturating_sub(4) as usize;
+        let content_width = area.width.saturating_sub(8) as usize; // Account for borders, padding, and indentation
         let wrapped = self.wrap_text(&content, content_width);
 
-        // Create text with role prefix on first line
+        // Create text with role header and indented content
         let mut lines = Vec::new();
-        for (i, line) in wrapped.iter().enumerate() {
-            if i == 0 {
-                // First line with role prefix
-                let prefix_style = Style::default()
-                    .fg(border_color)
-                    .add_modifier(Modifier::BOLD);
-                lines.push(Line::from(vec![
-                    Span::styled(format!("{}: ", role_text), prefix_style),
-                    Span::raw(line),
-                ]));
-            } else {
-                // Continuation lines
-                lines.push(Line::from(line.as_str()));
-            }
+        
+        // First line: emoji + role name (separate from content)
+        let prefix_style = Style::default()
+            .fg(border_color)
+            .add_modifier(Modifier::BOLD);
+        
+        lines.push(Line::from(vec![
+            Span::raw(" "),  // Left padding
+            Span::raw(role_emoji),
+            Span::raw(" "),
+            Span::styled(role_text, prefix_style),
+        ]));
+        
+        // Content lines: indented for visual hierarchy
+        for line in wrapped.iter() {
+            lines.push(Line::from(format!("  {}", line)));  // 2-space indent
         }
 
         let text = Text::from(lines);
