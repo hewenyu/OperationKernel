@@ -61,8 +61,8 @@ cargo run
 
 ✅ 终端 TUI 界面
 ✅ 多行文本输入
-✅ 回显功能（测试用）
-⏳ LLM 集成（Phase 2 开发中）
+✅ Claude API 流式对话（Phase 2）
+✅ 工具系统 + 工具调用闭环（Claude tool_use → 执行 → tool_result 回灌）
 
 ## 📚 更多文档
 
@@ -80,6 +80,7 @@ chmod 600 ~/.config/ok/config.toml
 
 ## 🚀 下一步
 
-Phase 2 将实现真实的 Claude API 集成，敬请期待！
-
-当前是 Echo 模式，输入的消息会原样返回（用于测试 TUI）。
+建议优先做：
+- 多模型支持（OpenAI/Gemini）与 station 路由
+- 权限 / policy 层（写入、执行命令、网络访问的可控性）
+- 可回放的 agent 测试（mock LLM stream，回归验证 tool loop）

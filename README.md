@@ -51,6 +51,7 @@ OperationKernel/
 ├── Cargo.toml           # Dependencies and build config
 ├── src/
 │   ├── main.rs          # Entry point, event loop
+│   ├── agent.rs         # UI-agnostic agent loop (LLM + tools + conversation)
 │   ├── event.rs         # Event types
 │   ├── config/          # Configuration system
 │   │   ├── mod.rs       # Config loading/saving
@@ -59,6 +60,8 @@ OperationKernel/
 │   │   ├── mod.rs       # Module exports
 │   │   ├── types.rs     # Message, StreamChunk types
 │   │   └── anthropic.rs # Claude API client with SSE streaming
+│   ├── tool/            # Tool system (bash/read/write/grep/...)
+│   ├── process/         # Background processes (bash_output/kill_shell)
 │   └── tui/             # Terminal UI
 │       ├── mod.rs       # Module exports
 │       ├── app.rs       # App state and rendering
@@ -109,12 +112,13 @@ cargo run
 **Usage:**
 1. Type your message (use `Shift+Enter` for multi-line)
 2. Press `Enter` to submit
-3. Watch it echo back!
+3. Watch Claude respond in real-time (streaming)
 4. Press `Ctrl+C` to quit
 
 ### Technical Highlights
 
-- **Clean Architecture**: Separation of concerns (events, UI, app state)
+- **Clean Architecture**: UI-agnostic agent core + TUI rendering
+- **Agent Runner**: `src/agent.rs` manages streaming + tool loop
 - **Async-First**: Built on Tokio for future network operations
 - **Type-Safe**: Zero unsafe code, leveraging Rust's type system
 - **Efficient Rendering**: Only redraws on events, 60 FPS capable
@@ -129,13 +133,12 @@ cargo run
 - `futures 0.3` - Async stream utilities
 - `anyhow 1` - Error handling
 
-### Next: Phase 2
+### Next: Phase 3
 
-Phase 2 will add:
+Phase 3 will add:
 - OpenAI API integration
-- Real LLM responses (replacing echo)
-- SSE stream parsing
-- Token-by-token response streaming
+- Permissions / policy layer for dangerous tools
+- More agent capabilities (planning, memory, routing)
 
 ### Success Criteria (Phase 1)
 
