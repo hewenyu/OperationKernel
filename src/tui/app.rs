@@ -5,9 +5,9 @@ use crate::tui::{ChatMessage, ErrorDetails, InputWidget, MessageList};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 use std::time::Instant;
@@ -115,6 +115,7 @@ impl App {
     }
 
     /// Get current spinner character
+    #[allow(dead_code)]
     fn get_spinner(&self) -> &'static str {
         SPINNER_FRAMES[self.spinner_frame]
     }
@@ -406,76 +407,38 @@ impl App {
 
     /// Render chat history
     fn render_chat(&mut self, frame: &mut Frame, area: Rect) {
-        use ratatui::widgets::BorderType;
-        
-        // Create a block for the chat area
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)  // Unified rounded borders
-            .title(Span::styled(
-                " 💬 Chat History ",
-                Style::default()
-                    .fg(Color::LightBlue)
-                    .add_modifier(Modifier::BOLD)
-            ))
-            .border_style(Style::default().fg(Color::DarkGray));  // Subtle border color
-
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-
-        // Render the message list inside the block
-        self.message_list.render(frame, inner);
+        // Directly render message list without outer border (log-stream style)
+        self.message_list.render(frame, area);
     }
 
-    /// Render status bar
+    /// Render status bar (simplified borderless style)
     fn render_status(&self, frame: &mut Frame, area: Rect) {
-        use ratatui::widgets::BorderType;
-
-        let mut status_spans = vec![
-            Span::styled(
-                if self.is_loading {
-                    format!("{} ", self.get_spinner())
-                } else {
-                    "✓ ".to_string()
-                },
-                Style::default().fg(if self.is_loading { Color::Yellow } else { Color::Green })
-            ),
-            Span::styled("Status: ", Style::default().fg(Color::LightYellow)),
-        ];
-
-        // Add status text with elapsed time if loading
-        if self.is_loading {
+        let status_text = if self.is_loading {
             if let Some(elapsed) = self.get_elapsed_time() {
-                status_spans.push(Span::raw(format!("Generating... {:.1}s", elapsed)));
+                format!("⚙️  Generating... {:.1}s · Messages: {}",
+                    elapsed, self.message_list.len())
             } else {
-                status_spans.push(Span::raw("Generating..."));
+                format!("⚙️  Generating... · Messages: {}", self.message_list.len())
             }
         } else {
-            status_spans.push(Span::raw("Ready"));
-        }
+            format!("✓ Ready · Messages: {}", self.message_list.len())
+        };
 
-        status_spans.extend_from_slice(&[
-            Span::raw(" │ "),  // Visual separator
-            Span::styled("Messages: ", Style::default().fg(Color::LightCyan)),
-            Span::raw(self.message_list.len().to_string()),
-        ]);
+        let lines = vec![
+            // Top separator line
+            Line::from(Span::styled(
+                "─".repeat(area.width as usize),
+                Style::default().fg(Color::DarkGray)
+            )),
+            // Status content
+            Line::from(Span::styled(
+                status_text,
+                Style::default().fg(Color::DarkGray)
+            )),
+        ];
 
-        let status_text = vec![Line::from(status_spans)];
-
-        let status = Paragraph::new(status_text).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)  // Unified rounded borders
-                .title(Span::styled(
-                    " 📊 Status ",
-                    Style::default()
-                        .fg(Color::LightBlue)
-                        .add_modifier(Modifier::BOLD)
-                ))
-                .border_style(Style::default().fg(Color::DarkGray)),
-        );
-
-        frame.render_widget(status, area);
+        let paragraph = Paragraph::new(lines);
+        frame.render_widget(paragraph, area);
     }
 
     /// Render input area

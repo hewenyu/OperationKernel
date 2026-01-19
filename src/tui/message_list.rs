@@ -3,7 +3,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, BorderType, Paragraph, Wrap},
+    widgets::{Paragraph, Wrap},
     Frame,
 };
 use textwrap::wrap;
@@ -98,16 +98,15 @@ impl MessageList {
 
     /// Calculate the height of a message when rendered
     fn calculate_message_height(&mut self, message_idx: usize, width: u16) -> u16 {
-        let border_height = 2; // Top and bottom borders
-        let role_header_lines = 1u16;
-
         // Calculate wrapped lines using cache
-        let content_width = width.saturating_sub(8); // Match render_message (borders + padding + indent)
+        let content_width = width.saturating_sub(2); // Only need space for bullet symbol + space
         let wrapped_lines = self.get_wrapped_text_cached(message_idx, content_width as usize);
 
+        // Height is just the number of content lines (no borders, no separate header)
         let content_lines = wrapped_lines.len().max(1) as u16;
 
-        border_height + role_header_lines + content_lines
+        // Add 1 for the blank line between messages (handled in calculate_total_height)
+        content_lines
     }
 
     /// Get wrapped text using cache (optimized)
@@ -185,9 +184,9 @@ impl MessageList {
         let mut total = 0;
         for i in 0..self.messages.len() {
             total += self.calculate_message_height(i, width);
-            total += 2; // Increased spacing between messages for better visual separation
+            total += 1; // 1 blank line between messages
         }
-        total.saturating_sub(2) // Remove last spacing
+        total.saturating_sub(1) // Remove last spacing
     }
 
     /// Render the message list
@@ -209,7 +208,7 @@ impl MessageList {
         for i in 0..self.messages.len() {
             let height = self.calculate_message_height(i, width);
             message_positions.push((current_y, height));
-            current_y += height + 2; // +2 for increased spacing between messages
+            current_y += height + 1; // +1 for blank line between messages
         }
 
         // Render only visible messages
@@ -240,90 +239,69 @@ impl MessageList {
         }
     }
 
-    /// Render a single message with border
+    /// Render a single message with bullet point (borderless log-stream style)
     fn render_message(&mut self, frame: &mut Frame, message_idx: usize, area: Rect) {
         let message = &self.messages[message_idx];
-        let (border_color, border_type, role_text, role_emoji) = match message.role {
-            MessageRole::User => (
-                Color::LightCyan,     // Bright cyan for better visibility
-                BorderType::Rounded,  // Unified rounded borders
-                "You",
-                "👤"                  // User icon
-            ),
-            MessageRole::Assistant => (
-                Color::LightGreen,    // Bright green for better visibility
-                BorderType::Rounded,  // Unified rounded borders
-                "AI",                 // Simplified label
-                "🤖"                  // AI icon
-            ),
-            MessageRole::System => (
-                Color::LightBlue,     // Light blue instead of gray for better visibility
-                BorderType::Rounded,  // Unified rounded borders
-                "System",
-                "ℹ️"                  // Info icon
-            ),
-            MessageRole::Error => (
-                Color::LightRed,      // Softer red for less eye strain
-                BorderType::Rounded,  // Unified rounded borders
-                "Error",
-                "⚠️"                  // Warning icon
-            ),
+
+        // Select color and bullet symbol based on role
+        let (text_color, prefix_symbol) = match message.role {
+            MessageRole::User => (Color::LightCyan, "•"),
+            MessageRole::Assistant => (Color::LightGreen, "•"),
+            MessageRole::System => (Color::LightBlue, "-"),
+            MessageRole::Error => (Color::LightRed, "⚠"),
         };
 
         // Add cursor indicator for streaming messages
-        // Also trim leading/trailing whitespace to avoid rendering empty lines at start/end
         let content = if !message.is_complete {
             if message.content.is_empty() {
                 "⋯".to_string()  // Show ellipsis while waiting for content
             } else {
                 let trimmed = message.content.trim();
-                format!("{} ▌", trimmed)  // Half-block cursor with space, more subtle
+                format!("{} ▌", trimmed)  // Half-block cursor with space
             }
         } else {
             message.content.trim().to_string()
         };
 
-        // Wrap content using cache
-        let content_width = area.width.saturating_sub(8) as usize; // Account for borders, padding, and indentation
+        // Calculate content width (only need space for bullet symbol + space)
+        let content_width = area.width.saturating_sub(2) as usize;
 
         // For streaming messages with changing content, use direct wrapping
         // For complete messages, use cache
         let wrapped = if !message.is_complete {
             self.wrap_text(&content, content_width)
         } else {
-            // Use trimmed content for caching to match what we actually render
             self.get_wrapped_text_cached_trimmed(message_idx, &content, content_width)
         };
 
-        // Create text with role header and indented content
+        // Build text lines without borders
         let mut lines = Vec::new();
-        
-        // First line: emoji + role name (separate from content)
-        let prefix_style = Style::default()
-            .fg(border_color)
-            .add_modifier(Modifier::BOLD);
-        
-        lines.push(Line::from(vec![
-            Span::raw(" "),  // Left padding
-            Span::raw(role_emoji),
-            Span::raw(" "),
-            Span::styled(role_text, prefix_style),
-        ]));
-        
-        // Content lines: indented for visual hierarchy
-        for line in wrapped.iter() {
+
+        // First line: bullet symbol + first line of content
+        if let Some(first_line) = wrapped.first() {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("{} ", prefix_symbol),
+                    Style::default().fg(text_color).add_modifier(Modifier::BOLD)
+                ),
+                Span::raw(first_line),
+            ]));
+        }
+
+        // Subsequent lines: indented to align with content
+        for line in wrapped.iter().skip(1) {
             lines.push(Line::from(format!("  {}", line)));  // 2-space indent
+        }
+
+        // Add blank line between messages (if not the last message)
+        if message_idx < self.messages.len() - 1 {
+            lines.push(Line::from(""));
         }
 
         let text = Text::from(lines);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(border_color))
-            .border_type(border_type);
-
+        // Render text directly without border
         let paragraph = Paragraph::new(text)
-            .block(block)
             .wrap(Wrap { trim: false });
 
         frame.render_widget(paragraph, area);
