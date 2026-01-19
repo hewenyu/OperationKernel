@@ -6,7 +6,6 @@ use common::TestFixture;
 use ok::tool::{base::*, kill_shell::KillShellTool};
 use serde_json::json;
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
 
 /// Helper to create a tool context for testing
 fn create_test_context(working_dir: std::path::PathBuf) -> ToolContext {
@@ -93,9 +92,6 @@ async fn test_kill_shell_completed_process() {
         .await
         .expect("Failed to spawn shell");
 
-    // Wait for it to complete
-    sleep(Duration::from_millis(100)).await;
-
     // Kill it (even though it's already completed)
     let tool = KillShellTool;
     let params = json!({
@@ -169,9 +165,6 @@ async fn test_kill_shell_sigkill_sent() {
         .await
         .expect("Failed to spawn shell");
 
-    // Wait a bit to ensure it's running
-    sleep(Duration::from_millis(50)).await;
-
     // Verify it's still running
     if let Some(status) = ctx.shell_manager.get_status(&shell_id).await {
         assert!(matches!(
@@ -234,9 +227,6 @@ async fn test_kill_shell_status_before_kill() {
         .spawn("status_test".into(), "sleep 100".into(), fixture.path())
         .await
         .expect("Failed to spawn shell");
-
-    // Wait a bit
-    sleep(Duration::from_millis(50)).await;
 
     // Get status before killing
     let status_before = ctx.shell_manager.get_status(&shell_id).await;

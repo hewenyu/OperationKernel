@@ -19,6 +19,57 @@ fn create_test_context(working_dir: std::path::PathBuf) -> ToolContext {
     )
 }
 
+async fn wait_for_line_counts(
+    ctx: &ToolContext,
+    shell_id: &str,
+    min_stdout: usize,
+    min_stderr: usize,
+) {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let (stdout, stderr) = ctx
+                .shell_manager
+                .get_line_counts(shell_id)
+                .await
+                .unwrap_or((0, 0));
+            if stdout >= min_stdout && stderr >= min_stderr {
+                break;
+            }
+            sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("timed out waiting for background shell output");
+}
+
+async fn wait_for_stdout_contains(ctx: &ToolContext, shell_id: &str, needle: &str) {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let stdout = ctx.shell_manager.get_stdout(shell_id).await.unwrap_or_default();
+            if stdout.iter().any(|l| l.contains(needle)) {
+                break;
+            }
+            sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("timed out waiting for stdout to contain expected text");
+}
+
+async fn wait_for_stderr_contains(ctx: &ToolContext, shell_id: &str, needle: &str) {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let stderr = ctx.shell_manager.get_stderr(shell_id).await.unwrap_or_default();
+            if stderr.iter().any(|l| l.contains(needle)) {
+                break;
+            }
+            sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("timed out waiting for stderr to contain expected text");
+}
+
 #[tokio::test]
 async fn test_bash_output_shell_not_found() {
     let fixture = TestFixture::new();
@@ -56,8 +107,7 @@ async fn test_bash_output_running_process() {
         .await
         .expect("Failed to spawn shell");
 
-    // Wait a bit for first line
-    sleep(Duration::from_millis(30)).await;
+    wait_for_stdout_contains(&ctx, &shell_id, "line1").await;
 
     let tool = BashOutputTool;
     let params = json!({
@@ -68,7 +118,7 @@ async fn test_bash_output_running_process() {
     assert!(result.is_ok());
 
     let output = result.unwrap();
-    assert!(output.output.contains("line1") || output.output.contains("Status: Running"));
+    assert!(output.output.contains("line1"));
     assert_eq!(output.metadata.get("shell_id"), Some(&json!(shell_id)));
 }
 
@@ -88,8 +138,7 @@ async fn test_bash_output_completed_process() {
         .await
         .expect("Failed to spawn shell");
 
-    // Wait for completion
-    sleep(Duration::from_millis(100)).await;
+    wait_for_stdout_contains(&ctx, &shell_id, "completed").await;
 
     let tool = BashOutputTool;
     let params = json!({
@@ -124,8 +173,7 @@ async fn test_bash_output_with_offset() {
         .await
         .expect("Failed to spawn shell");
 
-    // Wait for all output
-    sleep(Duration::from_millis(100)).await;
+    wait_for_line_counts(&ctx, &shell_id, 3, 0).await;
 
     let tool = BashOutputTool;
 
@@ -139,7 +187,9 @@ async fn test_bash_output_with_offset() {
     assert!(result1.is_ok());
 
     let output1 = result1.unwrap();
+    assert_eq!(output1.metadata.get("new_stdout_lines"), Some(&json!(3)));
     let new_offset = output1.metadata.get("new_offset").unwrap().as_u64().unwrap() as usize;
+    assert_eq!(new_offset, 3);
 
     // Second call - with offset (should return no new output)
     let params2 = json!({
@@ -151,7 +201,9 @@ async fn test_bash_output_with_offset() {
     assert!(result2.is_ok());
 
     let output2 = result2.unwrap();
-    assert!(output2.output.contains("No new output"));
+    assert!(output2.output.contains("No new output") || output2.output.contains("(No new output since offset)"));
+    assert_eq!(output2.metadata.get("new_stdout_lines"), Some(&json!(0)));
+    assert_eq!(output2.metadata.get("new_stderr_lines"), Some(&json!(0)));
 }
 
 #[tokio::test]
@@ -170,8 +222,7 @@ async fn test_bash_output_stderr_captured() {
         .await
         .expect("Failed to spawn shell");
 
-    // Wait for output
-    sleep(Duration::from_millis(100)).await;
+    wait_for_stderr_contains(&ctx, &shell_id, "stderr message").await;
 
     let tool = BashOutputTool;
     let params = json!({
@@ -200,8 +251,7 @@ async fn test_bash_output_no_new_output() {
         .await
         .expect("Failed to spawn shell");
 
-    // Wait for completion
-    sleep(Duration::from_millis(100)).await;
+    wait_for_line_counts(&ctx, &shell_id, 1, 0).await;
 
     let tool = BashOutputTool;
 
@@ -212,6 +262,7 @@ async fn test_bash_output_no_new_output() {
         .unwrap();
 
     let total_lines = result1.metadata.get("new_offset").unwrap().as_u64().unwrap() as usize;
+    assert_eq!(total_lines, 1);
 
     // Second call with offset matching total
     let params = json!({
@@ -223,9 +274,13 @@ async fn test_bash_output_no_new_output() {
     assert!(result2.is_ok());
 
     let output2 = result2.unwrap();
-    assert!(output2.output.contains("No new output"));
+    assert!(output2.output.contains("No new output") || output2.output.contains("(No new output since offset)"));
     assert_eq!(
         output2.metadata.get("new_stdout_lines"),
+        Some(&json!(0))
+    );
+    assert_eq!(
+        output2.metadata.get("new_stderr_lines"),
         Some(&json!(0))
     );
 }
@@ -246,8 +301,7 @@ async fn test_bash_output_regex_filter_stdout() {
         .await
         .expect("Failed to spawn shell");
 
-    // Wait for output
-    sleep(Duration::from_millis(100)).await;
+    wait_for_line_counts(&ctx, &shell_id, 3, 0).await;
 
     let tool = BashOutputTool;
     let params = json!({
@@ -260,7 +314,11 @@ async fn test_bash_output_regex_filter_stdout() {
 
     let output = result.unwrap();
     // Should contain INFO lines
-    assert!(output.output.contains("INFO:") || output.output.contains("message1"));
+    assert!(output.output.contains("INFO: message1"));
+    assert!(output.output.contains("INFO: message3"));
+    assert!(!output.output.contains("ERROR: message2"));
+    assert_eq!(output.metadata.get("new_stdout_lines"), Some(&json!(2)));
+    assert_eq!(output.metadata.get("new_stderr_lines"), Some(&json!(0)));
 }
 
 #[tokio::test]
@@ -279,8 +337,7 @@ async fn test_bash_output_regex_filter_stderr() {
         .await
         .expect("Failed to spawn shell");
 
-    // Wait for output
-    sleep(Duration::from_millis(100)).await;
+    wait_for_line_counts(&ctx, &shell_id, 0, 2).await;
 
     let tool = BashOutputTool;
     let params = json!({
@@ -293,9 +350,10 @@ async fn test_bash_output_regex_filter_stderr() {
 
     // The filter should only show lines containing ERROR
     let output = result.unwrap();
-    // Check that filtering was applied (filtered lines count should be less than total if WARN was excluded)
-    let new_stderr = output.metadata.get("new_stderr_lines").unwrap().as_u64().unwrap();
-    assert!(new_stderr <= 2); // Should have filtered some lines
+    assert!(output.output.contains("ERROR: error"));
+    assert!(!output.output.contains("WARN: warning"));
+    assert_eq!(output.metadata.get("new_stdout_lines"), Some(&json!(0)));
+    assert_eq!(output.metadata.get("new_stderr_lines"), Some(&json!(1)));
 }
 
 #[tokio::test]
@@ -309,8 +367,6 @@ async fn test_bash_output_invalid_regex() {
         .spawn("any_shell".into(), "echo 'test'".into(), fixture.path())
         .await
         .expect("Failed to spawn shell");
-
-    sleep(Duration::from_millis(50)).await;
 
     let tool = BashOutputTool;
     let params = json!({
@@ -345,8 +401,7 @@ async fn test_bash_output_metadata_correct() {
         .await
         .expect("Failed to spawn shell");
 
-    // Wait for all output
-    sleep(Duration::from_millis(100)).await;
+    wait_for_line_counts(&ctx, &shell_id, 2, 1).await;
 
     let tool = BashOutputTool;
     let params = json!({

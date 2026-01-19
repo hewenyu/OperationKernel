@@ -287,10 +287,11 @@ async fn test_grep_skips_binary_files() {
 
     let output = result.unwrap();
     assert!(output.output.contains("text.txt"));
-    assert!(
-        output.metadata.get("binary_files_skipped").is_some()
-        || output.metadata.get("binary_files_skipped") == Some(&json!(1))
+    assert_eq!(
+        output.metadata.get("binary_files_skipped"),
+        Some(&json!(1))
     );
+    assert!(!output.output.contains("binary.bin"));
 }
 
 #[tokio::test]

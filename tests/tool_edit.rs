@@ -281,7 +281,6 @@ async fn test_edit_binary_file_error() {
     assert!(result.is_err());
 
     let err_msg = format!("{}", result.unwrap_err());
-    eprintln!("Actual error message: {}", err_msg);
     assert!(
         err_msg.to_lowercase().contains("binary") || err_msg.contains("utf"),
         "Expected error message to mention binary file, got: {}",
@@ -305,9 +304,11 @@ async fn test_edit_shows_diff() {
 
     let result = tool.execute(params, &ctx).await.unwrap();
 
-    // Check that output contains diff markers
-    assert!(result.output.contains("---") || result.output.contains("+++"));
-    assert!(result.output.contains("-") || result.output.contains("+"));
+    // Check that output contains a unified diff with concrete changes
+    assert!(result.output.contains("\n--- "));
+    assert!(result.output.contains("\n+++ "));
+    assert!(result.output.contains("\n-Line 2\n"));
+    assert!(result.output.contains("\n+Modified Line 2\n"));
 }
 
 #[tokio::test]

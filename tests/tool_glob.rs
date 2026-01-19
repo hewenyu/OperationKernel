@@ -153,9 +153,8 @@ async fn test_glob_max_results() {
 
     let output = result.unwrap();
     assert_eq!(output.metadata.get("shown_matches"), Some(&json!(100)));
-    // The actual number found may be less than 250 due to various factors
-    // Just verify that we got the max_results limit
-    assert!(output.metadata.get("total_matches").unwrap().as_u64().unwrap() >= 100);
+    assert_eq!(output.metadata.get("total_matches"), Some(&json!(100)));
+    assert!(output.output.contains("Found 100 files matching"));
 }
 
 #[tokio::test]
