@@ -81,6 +81,8 @@ chmod 600 ~/.config/ok/config.toml
 ## 🚀 下一步
 
 建议优先做：
-- 多模型支持（OpenAI/Gemini）与 station 路由
 - 权限 / policy 层（写入、执行命令、网络访问的可控性）
 - 可回放的 agent 测试（mock LLM stream，回归验证 tool loop）
+- agent 核心能力（planning、memory、routing 等）
+
+说明：Gemini/Codex 等 provider 适配放在最后做，先把核心能力打磨稳定。

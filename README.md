@@ -136,9 +136,9 @@ cargo run
 ### Next: Phase 3
 
 Phase 3 will add:
-- OpenAI API integration
 - Permissions / policy layer for dangerous tools
 - More agent capabilities (planning, memory, routing)
+- Provider adapters (Gemini/Codex, etc.) will be done last
 
 ### Success Criteria (Phase 1)
 
