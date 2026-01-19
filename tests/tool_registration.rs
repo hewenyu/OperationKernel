@@ -45,9 +45,14 @@ fn test_all_tools_registered() {
     assert!(registry.get("kill_shell").is_some(), "KillShell tool should be registered");
     assert!(registry.get("web_fetch").is_some(), "WebFetch tool should be registered");
 
-    // Total count should be 11
+    // Interactive tools (Phase 4)
+    assert!(registry.get("ask_user_question").is_some(), "AskUserQuestion tool should be registered");
+    assert!(registry.get("enter_plan_mode").is_some(), "EnterPlanMode tool should be registered");
+    assert!(registry.get("exit_plan_mode").is_some(), "ExitPlanMode tool should be registered");
+
+    // Total count should be 14
     let definitions = registry.list_tool_definitions();
-    assert_eq!(definitions.len(), 11, "Should have exactly 11 tools registered");
+    assert_eq!(definitions.len(), 14, "Should have exactly 14 tools registered");
 }
 
 #[test]
