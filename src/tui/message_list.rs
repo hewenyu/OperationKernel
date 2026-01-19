@@ -13,6 +13,7 @@ pub struct MessageList {
     messages: Vec<ChatMessage>,
     scroll_offset: u16,
     viewport_height: u16,
+    viewport_width: u16,
     auto_scroll: bool,
 }
 
@@ -22,6 +23,7 @@ impl MessageList {
             messages: Vec::new(),
             scroll_offset: 0,
             viewport_height: 0,
+            viewport_width: 0,
             auto_scroll: true,
         }
     }
@@ -45,15 +47,15 @@ impl MessageList {
     /// Calculate the height of a message when rendered
     fn calculate_message_height(&self, message: &ChatMessage, width: u16) -> u16 {
         let border_height = 2; // Top and bottom borders
-        let padding = 2; // Increased space for role prefix and breathing room
+        let role_header_lines = 1u16;
 
         // Calculate wrapped lines
-        let content_width = width.saturating_sub(6); // Account for borders and wider padding (3 chars each side)
+        let content_width = width.saturating_sub(8); // Match render_message (borders + padding + indent)
         let wrapped_lines = self.wrap_text(&message.content, content_width as usize);
 
         let content_lines = wrapped_lines.len().max(1) as u16;
 
-        border_height + padding + content_lines
+        border_height + role_header_lines + content_lines
     }
 
     /// Wrap text to fit within the given width
@@ -83,6 +85,7 @@ impl MessageList {
     /// Render the message list
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         self.viewport_height = area.height;
+        self.viewport_width = area.width;
 
         if self.messages.is_empty() {
             return;
@@ -125,9 +128,7 @@ impl MessageList {
         // Update scroll offset for auto-scroll
         if self.auto_scroll {
             let total_height = self.calculate_total_height(width);
-            if total_height > area.height {
-                self.scroll_offset = total_height - area.height;
-            }
+            self.scroll_offset = total_height.saturating_sub(area.height);
         }
     }
 
@@ -211,7 +212,7 @@ impl MessageList {
 
     /// Scroll down by a number of lines
     pub fn scroll_down(&mut self, lines: u16) {
-        let total_height = self.calculate_total_height(self.viewport_height.max(1));
+        let total_height = self.calculate_total_height(self.viewport_width.max(1));
         let max_scroll = total_height.saturating_sub(self.viewport_height);
 
         if self.scroll_offset < max_scroll {
@@ -234,7 +235,12 @@ impl MessageList {
 
     /// Scroll to the bottom
     fn auto_scroll_to_bottom(&mut self) {
-        let total_height = self.calculate_total_height(self.viewport_height.max(1));
+        if self.viewport_height == 0 || self.viewport_width == 0 {
+            self.scroll_offset = 0;
+            return;
+        }
+
+        let total_height = self.calculate_total_height(self.viewport_width.max(1));
         if total_height > self.viewport_height {
             self.scroll_offset = total_height - self.viewport_height;
         } else {
@@ -245,7 +251,7 @@ impl MessageList {
     /// Check if currently at the bottom
     #[allow(dead_code)]
     pub fn is_at_bottom(&self) -> bool {
-        let total_height = self.calculate_total_height(self.viewport_height.max(1));
+        let total_height = self.calculate_total_height(self.viewport_width.max(1));
         if total_height <= self.viewport_height {
             return true;
         }
