@@ -53,6 +53,41 @@ impl TestFixture {
     pub fn file_exists(&self, name: &str) -> bool {
         self.path().join(name).exists()
     }
+
+    /// Create multiple files at once (directory tree)
+    /// Example: vec![("src/main.rs", "code"), ("README.md", "docs")]
+    pub fn create_tree(&self, files: Vec<(&str, &str)>) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        for (path, content) in files {
+            // Create parent directories if needed
+            let filepath = self.path().join(path);
+            if let Some(parent) = filepath.parent() {
+                std::fs::create_dir_all(parent).expect("Failed to create parent dirs");
+            }
+            std::fs::write(&filepath, content).expect("Failed to write file");
+            paths.push(filepath);
+        }
+        paths
+    }
+
+    /// Create a .gitignore file with given patterns
+    pub fn create_gitignore(&self, patterns: &[&str]) {
+        let content = patterns.join("\n");
+        self.create_file(".gitignore", &content);
+    }
+
+    /// Create nested directories
+    /// Example: &["src", "src/tool", "tests"]
+    pub fn create_nested_dirs(&self, paths: &[&str]) -> Vec<PathBuf> {
+        paths
+            .iter()
+            .map(|p| {
+                let dirpath = self.path().join(p);
+                std::fs::create_dir_all(&dirpath).expect("Failed to create nested dir");
+                dirpath
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

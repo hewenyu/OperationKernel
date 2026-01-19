@@ -3,6 +3,8 @@ pub mod context;
 pub mod bash;
 pub mod read;
 pub mod write;
+pub mod grep;
+pub mod glob;
 
 use base::Tool;
 use serde_json::json;
@@ -19,10 +21,12 @@ impl ToolRegistry {
     pub fn new() -> Self {
         let mut tools: HashMap<String, Arc<dyn Tool>> = HashMap::new();
 
-        // Register the three core tools
+        // Register the five core tools
         tools.insert("bash".to_string(), Arc::new(bash::BashTool));
         tools.insert("read".to_string(), Arc::new(read::ReadTool::new()));
         tools.insert("write".to_string(), Arc::new(write::WriteTool));
+        tools.insert("grep".to_string(), Arc::new(grep::GrepTool::new()));
+        tools.insert("glob".to_string(), Arc::new(glob::GlobTool::new()));
 
         Self { tools }
     }

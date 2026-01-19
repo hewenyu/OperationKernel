@@ -55,6 +55,9 @@ chrono = "0.4"
 # Tool system
 async-trait = "0.1"
 similar = "2.3"
+ignore = "0.4"      # .gitignore support + fast directory traversal
+regex = "1.10"      # Regular expression matching
+globset = "0.4"     # Glob pattern matching
 
 [dev-dependencies]
 tempfile = "3"
