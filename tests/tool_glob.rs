@@ -183,6 +183,7 @@ async fn test_glob_invalid_pattern() {
 #[tokio::test]
 async fn test_glob_respects_gitignore() {
     let fixture = TestFixture::new();
+    fixture.git_init();
     fixture.create_gitignore(&["ignored.txt", "ignored_dir/"]);
     fixture.create_tree(vec![
         ("tracked.txt", ""),
@@ -201,12 +202,10 @@ async fn test_glob_respects_gitignore() {
     assert!(result.is_ok());
 
     let output = result.unwrap();
-    // The gitignore functionality requires a git repository to work properly
-    // For now, we'll just verify that tracked.txt is found
     assert!(output.output.contains("tracked.txt"));
-
-    // Note: In a real git repository, ignored files would be excluded
-    // But in test temp dirs without git init, .gitignore may not work
+    assert!(!output.output.contains("ignored.txt"));
+    assert!(!output.output.contains("ignored_dir"));
+    assert_eq!(output.metadata.get("total_matches"), Some(&json!(1)));
 }
 
 #[tokio::test]

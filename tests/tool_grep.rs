@@ -165,6 +165,7 @@ async fn test_grep_invalid_regex() {
 #[tokio::test]
 async fn test_grep_respects_gitignore() {
     let fixture = TestFixture::new();
+    fixture.git_init();
 
     // Create .gitignore first
     fixture.create_gitignore(&["ignored.txt"]);
@@ -186,17 +187,9 @@ async fn test_grep_respects_gitignore() {
     assert!(result.is_ok());
 
     let output = result.unwrap();
-
-    // Debug: print the output
-    println!("Output: {}", output.output);
-    println!("Metadata: {:?}", output.metadata);
-
-    // The gitignore functionality requires a git repository to work properly
-    // For now, we'll just verify that at least tracked.txt is found
     assert!(output.output.contains("tracked.txt"));
-
-    // Note: In a real git repository, ignored.txt would be excluded
-    // But in test temp dirs without git init, .gitignore may not work
+    assert!(!output.output.contains("ignored.txt"));
+    assert_eq!(output.metadata.get("total_matches"), Some(&json!(1)));
 }
 
 #[tokio::test]

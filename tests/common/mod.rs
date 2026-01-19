@@ -1,6 +1,7 @@
 //! Common test utilities and fixtures for tool testing
 
 use std::path::PathBuf;
+use std::process::Command;
 use tempfile::TempDir;
 
 /// Test fixture for file operations
@@ -87,6 +88,26 @@ impl TestFixture {
                 dirpath
             })
             .collect()
+    }
+
+    /// Initialize a git repository in the temp directory (useful for .gitignore tests).
+    pub fn git_init(&self) {
+        let status = Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(self.path())
+            .status()
+            .expect("Failed to run git init");
+        assert!(status.success(), "git init failed");
+
+        // Make the repo usable if a future test needs commits.
+        let _ = Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(self.path())
+            .status();
+        let _ = Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(self.path())
+            .status();
     }
 }
 

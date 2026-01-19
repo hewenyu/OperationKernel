@@ -36,13 +36,22 @@ async fn test_web_fetch_http_upgrade() {
 
     let result = tool.execute(params, &ctx).await;
 
-    // If it fails due to network, that's okay - we just want to verify
-    // the tool doesn't reject HTTP URLs
-    // If it succeeds, verify it upgraded to HTTPS
-    if let Ok(output) = result {
-        assert!(output.metadata.get("url").is_some());
-        let url = output.metadata.get("url").unwrap().as_str().unwrap();
-        assert!(url.starts_with("https://"));
+    // If it fails due to network, that's okay; we mainly want to ensure the tool
+    // doesn't reject HTTP URLs at validation time.
+    match result {
+        Ok(output) => {
+            let url_value = output
+                .metadata
+                .get("url")
+                .or_else(|| output.metadata.get("original_url"))
+                .expect("expected url metadata on success");
+            let url = url_value.as_str().expect("expected url metadata as string");
+            assert!(url.starts_with("https://"));
+        }
+        Err(ToolError::Other(_)) => {
+            // Expected in offline environments.
+        }
+        Err(e) => panic!("unexpected error (expected network or success): {e}"),
     }
 }
 
@@ -105,10 +114,15 @@ async fn test_web_fetch_prompt_included() {
 
     let result = tool.execute(params, &ctx).await;
 
-    // Even if network fails, we can check structure if it succeeds
-    if let Ok(output) = result {
-        assert!(output.output.contains(test_prompt));
-        assert!(output.output.contains("Prompt:"));
+    match result {
+        Ok(output) => {
+            assert!(output.output.contains(test_prompt));
+            assert!(output.output.contains("Prompt:"));
+        }
+        Err(ToolError::Other(_)) => {
+            // Expected in offline environments.
+        }
+        Err(e) => panic!("unexpected error (expected network or success): {e}"),
     }
 }
 
