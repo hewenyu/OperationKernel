@@ -133,6 +133,28 @@ impl MessageList {
         wrapped
     }
 
+    /// Get wrapped text using cache with trimmed content
+    fn get_wrapped_text_cached_trimmed(&mut self, message_idx: usize, trimmed_content: &str, max_width: usize) -> Vec<String> {
+        if message_idx >= self.messages.len() {
+            return vec![String::new()];
+        }
+
+        // Check cache validity using trimmed content
+        let cache_valid = self.render_cache[message_idx].is_valid(max_width, trimmed_content);
+
+        if cache_valid {
+            return self.render_cache[message_idx].wrapped_lines.clone();
+        }
+
+        // Cache miss - compute wrapped text
+        let wrapped = self.wrap_text(trimmed_content, max_width);
+
+        // Update cache with trimmed content
+        self.render_cache[message_idx].update(wrapped.clone(), max_width, trimmed_content);
+
+        wrapped
+    }
+
     /// Wrap text to fit within the given width (uncached)
     fn wrap_text(&self, text: &str, max_width: usize) -> Vec<String> {
         if text.is_empty() {
@@ -269,7 +291,8 @@ impl MessageList {
         let wrapped = if !message.is_complete {
             self.wrap_text(&content, content_width)
         } else {
-            self.get_wrapped_text_cached(message_idx, content_width)
+            // Use trimmed content for caching to match what we actually render
+            self.get_wrapped_text_cached_trimmed(message_idx, &content, content_width)
         };
 
         // Create text with role header and indented content
