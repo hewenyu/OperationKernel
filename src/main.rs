@@ -140,8 +140,8 @@ async fn run_app(
                 app.tick_spinner();
 
                 // Poll for streaming chunks
-                while let Some(chunk) = app.poll_stream() {
-                    app.handle_stream_chunk(chunk);
+                while let Some(evt) = app.poll_stream() {
+                    app.handle_async_event(evt);
                 }
                 app.handle_event(Event::Tick)?;
             }

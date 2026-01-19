@@ -18,7 +18,7 @@ struct BashParams {
 }
 
 fn default_timeout() -> u64 {
-    120_000 // 2 minutes default
+    60_000 // 1 minute default
 }
 
 #[async_trait::async_trait]
@@ -29,7 +29,7 @@ impl Tool for BashTool {
 
     fn description(&self) -> &str {
         "Execute shell commands and capture stdout/stderr. \
-         Supports timeout control (default 2 minutes). \
+         Supports timeout control (default 1 minute). \
          Returns exit code and combined output."
     }
 
@@ -43,8 +43,8 @@ impl Tool for BashTool {
                 },
                 "timeout": {
                     "type": "integer",
-                    "description": "Timeout in milliseconds (default: 120000 = 2 minutes)",
-                    "default": 120000
+                    "description": "Timeout in milliseconds (default: 60000 = 1 minute)",
+                    "default": 60000
                 },
                 "description": {
                     "type": "string",
@@ -63,6 +63,9 @@ impl Tool for BashTool {
     ) -> Result<ToolResult, ToolError> {
         let params: BashParams = serde_json::from_value(params)
             .map_err(|e| ToolError::InvalidParams(e.to_string()))?;
+
+        // Validate command for common issues
+        validate_command(&params.command, &ctx.working_dir)?;
 
         tracing::debug!(
             working_dir = %ctx.working_dir.display(),
@@ -159,6 +162,21 @@ impl Tool for BashTool {
             .with_metadata("command", json!(params.command))
             .with_metadata("success", json!(exit_code == Some(0))))
     }
+}
+
+/// Validate command for common issues that may cause timeouts or unintended behavior
+fn validate_command(command: &str, working_dir: &std::path::Path) -> Result<(), ToolError> {
+    // Check for filesystem-wide searches that ignore working_dir
+    if command.contains("find /") {
+        return Err(ToolError::InvalidParams(format!(
+            "Command attempts to search from root directory '/', which may take a very long time.\n\
+             Suggestion: Use 'find .' or 'find \"$PWD\"' to search from the current directory.\n\
+             Current working directory: {}",
+            working_dir.display()
+        )));
+    }
+
+    Ok(())
 }
 
 /// Helper function to read a stream to string

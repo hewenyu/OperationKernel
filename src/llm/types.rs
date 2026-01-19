@@ -66,13 +66,21 @@ impl Message {
     }
 
     pub fn user_with_tool_result(tool_use_id: String, result: String) -> Self {
+        Self::user_with_tool_result_detailed(tool_use_id, result, None)
+    }
+
+    pub fn user_with_tool_result_detailed(
+        tool_use_id: String,
+        result: String,
+        is_error: Option<bool>,
+    ) -> Self {
         Self {
             role: Role::User,
             content: MessageContent::Blocks(vec![ContentBlock::ToolResult(
                 ToolResultContent {
                     tool_use_id,
                     content: result,
-                    is_error: None,
+                    is_error,
                 },
             )]),
         }

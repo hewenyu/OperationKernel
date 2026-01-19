@@ -19,6 +19,17 @@ use tokio::sync::mpsc;
 /// Spinner frames for loading animation
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+#[derive(Debug, Clone)]
+pub(crate) enum AsyncEvent {
+    Llm(StreamChunk),
+    ToolResult {
+        tool_use_id: String,
+        tool_name: String,
+        content: String,
+        is_error: bool,
+    },
+}
+
 /// Main application state
 pub struct App {
     /// LLM client
@@ -35,8 +46,8 @@ pub struct App {
     should_quit: bool,
     /// Whether we're currently waiting for LLM response
     is_loading: bool,
-    /// Channel receiver for streaming responses
-    stream_receiver: Option<mpsc::UnboundedReceiver<StreamChunk>>,
+    /// Channel receiver for background events (LLM stream + tool results)
+    stream_receiver: Option<mpsc::UnboundedReceiver<AsyncEvent>>,
     /// Tool registry for executing tools
     tool_registry: Arc<ToolRegistry>,
     /// Pending tool calls that need execution
@@ -148,11 +159,45 @@ impl App {
     }
 
     /// Check for streaming messages
-    pub fn poll_stream(&mut self) -> Option<StreamChunk> {
+    pub(crate) fn poll_stream(&mut self) -> Option<AsyncEvent> {
         if let Some(receiver) = &mut self.stream_receiver {
             receiver.try_recv().ok()
         } else {
             None
+        }
+    }
+
+    pub(crate) fn handle_async_event(&mut self, event: AsyncEvent) {
+        match event {
+            AsyncEvent::Llm(chunk) => self.handle_stream_chunk(chunk),
+            AsyncEvent::ToolResult {
+                tool_use_id,
+                tool_name,
+                content,
+                is_error,
+            } => {
+                let ui_prefix = if is_error { "❌" } else { "✅" };
+                let ui = format!(
+                    "\n\n{} Tool result: {} ({})\n{}",
+                    ui_prefix, tool_name, tool_use_id, content
+                );
+
+                if let Some(msg) = self.message_list.get_current_streaming_mut() {
+                    msg.append_content(&ui);
+                } else {
+                    self.message_list
+                        .add_message(ChatMessage::system(self.current_message_id, ui));
+                    self.current_message_id += 1;
+                }
+
+                self.conversation
+                    .push(Message::user_with_tool_result_detailed(
+                        tool_use_id,
+                        content,
+                        if is_error { Some(true) } else { None },
+                    ));
+                self.mark_dirty();
+            }
         }
     }
 
@@ -391,15 +436,25 @@ impl App {
 
             // Execute each tool sequentially
             for tool_use in tool_calls {
+                let tool_use_id = tool_use.id.clone();
+                let tool_name = tool_use.name.clone();
+
                 // 1. Get the tool from registry
                 let tool = match registry.get(&tool_use.name) {
                     Some(t) => t,
                     None => {
                         // Tool not found - add error result
                         let error_msg = format!("Tool '{}' not found", tool_use.name);
-                        conversation.push(Message::user_with_tool_result(
+                        let _ = tx.send(AsyncEvent::ToolResult {
+                            tool_use_id: tool_use_id.clone(),
+                            tool_name: tool_name.clone(),
+                            content: error_msg.clone(),
+                            is_error: true,
+                        });
+                        conversation.push(Message::user_with_tool_result_detailed(
                             tool_use.id,
                             error_msg,
+                            Some(true),
                         ));
                         continue;
                     }
@@ -408,8 +463,8 @@ impl App {
                 // 2. Create tool execution context
                 let ctx = ToolContext::new(
                     "session_1",
-                    "msg_1",
-                    "default",
+                    tool_use_id.clone(),
+                    "ok",
                     working_dir.clone(),
                 );
 
@@ -417,24 +472,35 @@ impl App {
                 let result = tool.execute(tool_use.input, &ctx).await;
 
                 // 4. Format result and add to conversation
-                let result_content = match result {
+                let (result_content, is_error) = match result {
                     Ok(tool_result) => {
                         // Successful execution - format output
+                        (
                         format!(
                             "Tool: {}\nOutput:\n{}",
                             tool_result.title,
                             tool_result.output
+                        ),
+                        false,
                         )
                     }
                     Err(e) => {
                         // Tool execution failed - include error
-                        format!("Tool execution failed: {}", e)
+                        (format!("Tool execution failed: {}", e), true)
                     }
                 };
 
-                conversation.push(Message::user_with_tool_result(
+                let _ = tx.send(AsyncEvent::ToolResult {
+                    tool_use_id: tool_use_id.clone(),
+                    tool_name: tool_name.clone(),
+                    content: result_content.clone(),
+                    is_error,
+                });
+
+                conversation.push(Message::user_with_tool_result_detailed(
                     tool_use.id,
                     result_content,
+                    if is_error { Some(true) } else { None },
                 ));
             }
 
@@ -444,13 +510,13 @@ impl App {
                 Ok(mut stream) => {
                     use futures::StreamExt;
                     while let Some(chunk) = stream.next().await {
-                        if tx.send(chunk).is_err() {
+                        if tx.send(AsyncEvent::Llm(chunk)).is_err() {
                             break; // Receiver dropped
                         }
                     }
                 }
                 Err(e) => {
-                    let _ = tx.send(StreamChunk::Error(e.to_string()));
+                    let _ = tx.send(AsyncEvent::Llm(StreamChunk::Error(e.to_string())));
                 }
             }
         });
@@ -500,13 +566,13 @@ impl App {
                 Ok(mut stream) => {
                     use futures::StreamExt;
                     while let Some(chunk) = stream.next().await {
-                        if tx.send(chunk).is_err() {
+                        if tx.send(AsyncEvent::Llm(chunk)).is_err() {
                             break; // Receiver dropped
                         }
                     }
                 }
                 Err(e) => {
-                    let _ = tx.send(StreamChunk::Error(e.to_string()));
+                    let _ = tx.send(AsyncEvent::Llm(StreamChunk::Error(e.to_string())));
                 }
             }
         });

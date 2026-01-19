@@ -123,6 +123,47 @@ async fn test_bash_with_description() {
     assert_eq!(output.title, "Test echo command");
 }
 
+#[tokio::test]
+async fn test_bash_validation_rejects_find_root() {
+    let fixture = TestFixture::new();
+    let tool = BashTool;
+    let ctx = create_test_context(fixture.path());
+
+    let params = json!({
+        "command": "find / -name main.rs -type f 2>/dev/null | head -5"
+    });
+
+    let result = tool.execute(params, &ctx).await;
+    assert!(result.is_err());
+
+    match result.unwrap_err() {
+        ToolError::InvalidParams(msg) => {
+            assert!(msg.contains("root directory '/'"));
+            assert!(msg.contains("find ."));
+            assert!(msg.contains("working directory"));
+        }
+        _ => panic!("Expected InvalidParams error for find / command"),
+    }
+}
+
+#[tokio::test]
+async fn test_bash_validation_allows_find_dot() {
+    let fixture = TestFixture::new();
+    fixture.create_file("test.txt", "content");
+    let tool = BashTool;
+    let ctx = create_test_context(fixture.path());
+
+    let params = json!({
+        "command": "find . -name '*.txt' -type f"
+    });
+
+    let result = tool.execute(params, &ctx).await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    assert!(output.output.contains("test.txt"));
+}
+
 // TODO: Add more edge case tests
 // - Test with special characters in command
 // - Test with environment variables

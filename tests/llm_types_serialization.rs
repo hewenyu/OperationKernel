@@ -31,6 +31,25 @@ fn serializes_tool_result_message_as_blocks() {
 }
 
 #[test]
+fn serializes_tool_result_message_with_is_error() {
+    let msg = Message::user_with_tool_result_detailed(
+        "toolu_123".to_string(),
+        "output".to_string(),
+        Some(true),
+    );
+    let value = serde_json::to_value(msg).unwrap();
+    assert_eq!(
+        value,
+        json!({
+            "role": "user",
+            "content": [
+                { "type": "tool_result", "tool_use_id": "toolu_123", "content": "output", "is_error": true }
+            ]
+        })
+    );
+}
+
+#[test]
 fn serializes_assistant_blocks_with_tool_use() {
     let tool_use = ToolUse {
         id: "toolu_abc".to_string(),
@@ -57,4 +76,3 @@ fn serializes_assistant_blocks_with_tool_use() {
         })
     );
 }
-
