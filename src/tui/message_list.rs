@@ -139,11 +139,22 @@ impl MessageList {
             return vec![String::new()];
         }
 
-        // Use textwrap for proper word wrapping
         let max_width = max_width.max(10); // Minimum width to prevent issues
-        wrap(text, max_width)
-            .into_iter()
-            .map(|cow| cow.to_string())
+
+        // Split by newlines first, then wrap each line individually
+        text.lines()
+            .flat_map(|line| {
+                if line.is_empty() {
+                    // Preserve empty lines for formatting
+                    vec![String::new()]
+                } else {
+                    // Wrap non-empty lines
+                    wrap(line, max_width)
+                        .into_iter()
+                        .map(|cow| cow.to_string())
+                        .collect::<Vec<String>>()
+                }
+            })
             .collect()
     }
 
@@ -238,14 +249,16 @@ impl MessageList {
         };
 
         // Add cursor indicator for streaming messages
+        // Also trim leading/trailing whitespace to avoid rendering empty lines at start/end
         let content = if !message.is_complete {
             if message.content.is_empty() {
                 "⋯".to_string()  // Show ellipsis while waiting for content
             } else {
-                format!("{} ▌", message.content)  // Half-block cursor with space, more subtle
+                let trimmed = message.content.trim();
+                format!("{} ▌", trimmed)  // Half-block cursor with space, more subtle
             }
         } else {
-            message.content.clone()
+            message.content.trim().to_string()
         };
 
         // Wrap content using cache
