@@ -1,9 +1,6 @@
 use crate::event::{Event, EventResult};
+use crate::agent::{AgentEvent, AgentRunner};
 use crate::llm::anthropic::AnthropicClient;
-use crate::llm::types::{ContentBlock, Message, StreamChunk, ToolUse};
-use crate::process::BackgroundShellManager;
-use crate::tool::base::ToolContext;
-use crate::tool::ToolRegistry;
 use crate::tui::{ChatMessage, ErrorDetails, InputWidget, MessageList};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -13,34 +10,20 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
-use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
 /// Spinner frames for loading animation
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-#[derive(Debug, Clone)]
-pub(crate) enum AsyncEvent {
-    Llm(StreamChunk),
-    ToolResult {
-        tool_use_id: String,
-        tool_name: String,
-        content: String,
-        is_error: bool,
-    },
-}
-
 /// Main application state
 pub struct App {
-    /// LLM client
-    llm_client: AnthropicClient,
+    /// UI-agnostic agent runner (conversation + tool loop)
+    agent: AgentRunner,
     /// Message list component with scrolling support
     message_list: MessageList,
     /// Current message ID counter
     current_message_id: usize,
-    /// Conversation history (for LLM)
-    conversation: Vec<Message>,
     /// Input widget for user text
     pub input: InputWidget,
     /// Whether the application should quit
@@ -48,17 +31,7 @@ pub struct App {
     /// Whether we're currently waiting for LLM response
     is_loading: bool,
     /// Channel receiver for background events (LLM stream + tool results)
-    stream_receiver: Option<mpsc::UnboundedReceiver<AsyncEvent>>,
-    /// Tool registry for executing tools
-    tool_registry: Arc<ToolRegistry>,
-    /// Background shell manager for long-running processes
-    shell_manager: Arc<BackgroundShellManager>,
-    /// Pending tool calls that need execution
-    pending_tool_calls: Vec<ToolUse>,
-    /// Streaming assistant plain text (excluding tool-call UI annotations)
-    streaming_assistant_text: String,
-    /// Streaming assistant tool_use blocks (for API follow-up)
-    streaming_assistant_tool_uses: Vec<ToolUse>,
+    stream_receiver: Option<mpsc::UnboundedReceiver<AgentEvent>>,
     /// Current spinner frame index for loading animation
     spinner_frame: usize,
     /// When streaming started (for showing elapsed time)
@@ -95,19 +68,13 @@ impl App {
         current_id += 1;
 
         Self {
-            llm_client,
+            agent: AgentRunner::new(llm_client),
             message_list,
             current_message_id: current_id,
-            conversation: Vec::new(),
             input: InputWidget::new(),
             should_quit: false,
             is_loading: false,
             stream_receiver: None,
-            tool_registry: Arc::new(ToolRegistry::new()),
-            shell_manager: Arc::new(crate::process::BackgroundShellManager::new()),
-            pending_tool_calls: Vec::new(),
-            streaming_assistant_text: String::new(),
-            streaming_assistant_tool_uses: Vec::new(),
             spinner_frame: 0,
             streaming_start_time: None,
             needs_render: true,  // Start with initial render needed
@@ -162,8 +129,8 @@ impl App {
         self.should_quit
     }
 
-    /// Check for streaming messages
-    pub(crate) fn poll_stream(&mut self) -> Option<AsyncEvent> {
+    /// Check for agent events.
+    pub(crate) fn poll_stream(&mut self) -> Option<AgentEvent> {
         if let Some(receiver) = &mut self.stream_receiver {
             receiver.try_recv().ok()
         } else {
@@ -171,122 +138,77 @@ impl App {
         }
     }
 
-    pub(crate) fn handle_async_event(&mut self, event: AsyncEvent) {
+    pub(crate) fn handle_async_event(&mut self, event: AgentEvent) {
         match event {
-            AsyncEvent::Llm(chunk) => self.handle_stream_chunk(chunk),
-            AsyncEvent::ToolResult {
+            AgentEvent::AssistantStart => {
+                self.streaming_start_time = Some(Instant::now());
+                let assistant_msg = ChatMessage::assistant_streaming(self.current_message_id);
+                self.message_list.add_message(assistant_msg);
+                self.current_message_id += 1;
+                self.mark_dirty();
+            }
+            AgentEvent::AssistantTextDelta(text) => {
+                if let Some(msg) = self.message_list.get_current_streaming_mut() {
+                    msg.append_content(&text);
+                    self.mark_dirty();
+                }
+            }
+            AgentEvent::ToolUse(tool_use) => {
+                let tool_msg = format!("🔧 Calling tool: {} ({})", tool_use.name, tool_use.id);
+                if let Some(msg) = self.message_list.get_current_streaming_mut() {
+                    msg.append_content(&format!("\n\n{}", tool_msg));
+                } else {
+                    self.message_list
+                        .add_message(ChatMessage::system(self.current_message_id, tool_msg));
+                    self.current_message_id += 1;
+                }
+                self.mark_dirty();
+            }
+            AgentEvent::AssistantStop => {
+                if let Some(msg) = self.message_list.get_current_streaming_mut() {
+                    msg.complete();
+                    self.mark_dirty();
+                }
+            }
+            AgentEvent::ToolExecutionStart { count } => {
+                let tool_status_msg = ChatMessage::system(
+                    self.current_message_id,
+                    format!("⚙️  Executing {} tool(s)...", count),
+                );
+                self.message_list.add_message(tool_status_msg);
+                self.current_message_id += 1;
+                self.mark_dirty();
+            }
+            AgentEvent::ToolResult {
                 tool_use_id,
                 tool_name,
                 content,
                 is_error,
             } => {
                 let ui_prefix = if is_error { "❌" } else { "✅" };
-                let ui = format!(
-                    "\n\n{} Tool result: {} ({})\n{}",
-                    ui_prefix, tool_name, tool_use_id, content
-                );
-
-                if let Some(msg) = self.message_list.get_current_streaming_mut() {
-                    msg.append_content(&ui);
-                } else {
-                    self.message_list
-                        .add_message(ChatMessage::system(self.current_message_id, ui));
-                    self.current_message_id += 1;
-                }
-
-                self.conversation
-                    .push(Message::user_with_tool_result_detailed(
-                        tool_use_id,
-                        content,
-                        if is_error { Some(true) } else { None },
-                    ));
+                let ui = format!("{} Tool result: {} ({})\n{}", ui_prefix, tool_name, tool_use_id, content);
+                self.message_list
+                    .add_message(ChatMessage::system(self.current_message_id, ui));
+                self.current_message_id += 1;
                 self.mark_dirty();
             }
-        }
-    }
-
-    /// Handle a stream chunk
-    pub fn handle_stream_chunk(&mut self, chunk: StreamChunk) {
-        match chunk {
-            StreamChunk::Text(text) => {
-                tracing::debug!(delta_bytes = text.len(), "stream text delta");
-                // Append to the current streaming message
-                if let Some(msg) = self.message_list.get_current_streaming_mut() {
-                    msg.append_content(&text);
-                }
-                self.streaming_assistant_text.push_str(&text);
-                self.mark_dirty();  // New content needs render
+            AgentEvent::TurnComplete => {
+                self.is_loading = false;
+                self.stream_receiver = None;
+                self.streaming_start_time = None;
+                self.mark_dirty();
             }
-            StreamChunk::ToolUse(tool_use) => {
-                tracing::debug!(
-                    tool_id = %tool_use.id,
-                    tool_name = %tool_use.name,
-                    "stream tool_use"
-                );
-                // Display tool call in TUI
-                let tool_msg = format!("🔧 Calling tool: {} ({})", tool_use.name, tool_use.id);
-                if let Some(msg) = self.message_list.get_current_streaming_mut() {
-                    msg.append_content(&format!("\n\n{}", tool_msg));
-                }
-
-                // Store tool use for execution
-                self.streaming_assistant_tool_uses.push(tool_use.clone());
-                self.pending_tool_calls.push(tool_use);
-                self.mark_dirty();  // Tool use message needs render
-            }
-            StreamChunk::Done => {
-                tracing::debug!(
-                    assistant_text_bytes = self.streaming_assistant_text.len(),
-                    tool_uses = self.streaming_assistant_tool_uses.len(),
-                    pending_tools = self.pending_tool_calls.len(),
-                    "stream done"
-                );
-                // Mark message as complete and add to conversation
-                if let Some(msg) = self.message_list.get_current_streaming_mut() {
-                    msg.complete();
-                }
-
-                let assistant_text = std::mem::take(&mut self.streaming_assistant_text);
-                let assistant_tool_uses = std::mem::take(&mut self.streaming_assistant_tool_uses);
-
-                if !assistant_tool_uses.is_empty() {
-                    let mut blocks = Vec::new();
-                    if !assistant_text.is_empty() {
-                        blocks.push(ContentBlock::Text { text: assistant_text });
-                    }
-                    blocks.extend(assistant_tool_uses.into_iter().map(ContentBlock::ToolUse));
-                    self.conversation.push(Message::assistant_with_blocks(blocks));
-                } else if !assistant_text.is_empty() {
-                    self.conversation.push(Message::assistant(assistant_text));
-                }
-
-                // Execute pending tool calls
-                if !self.pending_tool_calls.is_empty() {
-                    self.execute_pending_tools();
-                } else {
-                    self.is_loading = false;
-                    self.stream_receiver = None;
-                    self.streaming_start_time = None;  // Clear start time
-                }
-                self.mark_dirty();  // State changed
-            }
-            StreamChunk::Error(err) => {
-                tracing::warn!(error = %crate::logging::redact_secrets(&err), "stream error");
-                // Add enhanced error message
-                let error_details = ErrorDetails::from_message(err.clone());
+            AgentEvent::Error(err) => {
+                let error_details = ErrorDetails::from_message(err);
                 self.message_list.add_message(ChatMessage::error_from_details(
                     self.current_message_id,
                     error_details,
                 ));
                 self.current_message_id += 1;
-
                 self.is_loading = false;
                 self.stream_receiver = None;
-                self.streaming_start_time = None;  // Clear start time
-                self.pending_tool_calls.clear();
-                self.streaming_assistant_text.clear();
-                self.streaming_assistant_tool_uses.clear();
-                self.mark_dirty();  // Error message needs render
+                self.streaming_start_time = None;
+                self.mark_dirty();
             }
         }
     }
@@ -400,154 +322,6 @@ impl App {
         self.message_list.enable_auto_scroll();
     }
 
-    /// Execute all pending tool calls
-    fn execute_pending_tools(&mut self) {
-        let tool_calls = std::mem::take(&mut self.pending_tool_calls);
-        let registry = self.tool_registry.clone();
-        let shell_manager = self.shell_manager.clone();
-        let working_dir = std::env::current_dir().unwrap_or_default();
-
-        tracing::debug!(
-            working_dir = %working_dir.display(),
-            tool_count = tool_calls.len(),
-            "executing pending tools"
-        );
-
-        // Create a message for tool execution status
-        let tool_status_msg = ChatMessage::system(
-            self.current_message_id,
-            format!("⚙️  Executing {} tool(s)...", tool_calls.len()),
-        );
-        self.message_list.add_message(tool_status_msg);
-        self.current_message_id += 1;
-
-        // Clone conversation for the async task
-        let mut conversation = self.conversation.clone();
-        let llm_client = self.llm_client.clone();
-        let (tx, rx) = mpsc::unbounded_channel();
-        self.stream_receiver = Some(rx);
-
-        // Create streaming assistant message for the response
-        self.streaming_start_time = Some(Instant::now());  // Restart timing for tool response
-        let assistant_msg = ChatMessage::assistant_streaming(self.current_message_id);
-        self.message_list.add_message(assistant_msg);
-        self.current_message_id += 1;
-        self.streaming_assistant_text.clear();
-        self.streaming_assistant_tool_uses.clear();
-
-        // Spawn async task to execute tools and continue conversation
-        tokio::spawn(async move {
-            use crate::llm::types::Message;
-
-            // Execute each tool sequentially
-            for tool_use in tool_calls {
-                let tool_use_id = tool_use.id.clone();
-                let tool_name = tool_use.name.clone();
-
-                // 1. Get the tool from registry
-                let tool = match registry.get(&tool_use.name) {
-                    Some(t) => t,
-                    None => {
-                        // Tool not found - add error result
-                        let error_msg = format!("Tool '{}' not found", tool_use.name);
-                        let _ = tx.send(AsyncEvent::ToolResult {
-                            tool_use_id: tool_use_id.clone(),
-                            tool_name: tool_name.clone(),
-                            content: error_msg.clone(),
-                            is_error: true,
-                        });
-                        conversation.push(Message::user_with_tool_result_detailed(
-                            tool_use.id,
-                            error_msg,
-                            Some(true),
-                        ));
-                        continue;
-                    }
-                };
-
-                // 2. Create tool execution context
-                let ctx = ToolContext::new(
-                    "session_1",
-                    tool_use_id.clone(),
-                    "ok",
-                    working_dir.clone(),
-                    shell_manager.clone(),
-                );
-
-                // 3. Execute the tool
-                let result = tool.execute(tool_use.input, &ctx).await;
-
-                // 4. Format result and add to conversation
-                let (result_content, is_error) = match result {
-                    Ok(tool_result) => {
-                        tracing::debug!(
-                            tool_name = %tool_name,
-                            output_len = tool_result.output.len(),
-                            output_preview = &tool_result.output[..tool_result.output.len().min(100)],
-                            title = %tool_result.title,
-                            "tool execution successful"
-                        );
-
-                        // Successful execution - format output
-                        let formatted = format!(
-                            "Tool: {}\nOutput:\n{}",
-                            tool_result.title,
-                            tool_result.output
-                        );
-
-                        if tool_result.output.is_empty() {
-                            tracing::warn!(
-                                tool_name = %tool_name,
-                                "tool output is empty despite successful execution"
-                            );
-                        }
-
-                        (formatted, false)
-                    }
-                    Err(e) => {
-                        // Tool execution failed - include error
-                        (format!("Tool execution failed: {}", e), true)
-                    }
-                };
-
-                tracing::debug!(
-                    result_content_len = result_content.len(),
-                    result_content_preview = &result_content[..result_content.len().min(200)],
-                    "sending tool result to UI"
-                );
-
-                let _ = tx.send(AsyncEvent::ToolResult {
-                    tool_use_id: tool_use_id.clone(),
-                    tool_name: tool_name.clone(),
-                    content: result_content.clone(),
-                    is_error,
-                });
-
-                conversation.push(Message::user_with_tool_result_detailed(
-                    tool_use.id,
-                    result_content,
-                    if is_error { Some(true) } else { None },
-                ));
-            }
-
-            // 5. After all tools execute, continue the conversation with Claude
-            let tool_definitions = Some(registry.list_tool_definitions());
-            match llm_client.stream_chat(conversation, tool_definitions).await {
-                Ok(mut stream) => {
-                    use futures::StreamExt;
-                    while let Some(chunk) = stream.next().await {
-                        if tx.send(AsyncEvent::Llm(chunk)).is_err() {
-                            break; // Receiver dropped
-                        }
-                    }
-                }
-                Err(e) => {
-                    let _ = tx.send(AsyncEvent::Llm(StreamChunk::Error(e.to_string())));
-                }
-            }
-        });
-    }
-
     /// Submit the current message and start LLM streaming
     fn submit_message(&mut self) {
         let text = self.input.take_text();
@@ -555,53 +329,16 @@ impl App {
             return;
         }
 
-        tracing::debug!(
-            user_bytes = text.len(),
-            conversation_len = self.conversation.len(),
-            "submit message"
-        );
-
         // Add user message
         let user_msg = ChatMessage::user(self.current_message_id, text.clone());
         self.message_list.add_message(user_msg);
         self.current_message_id += 1;
 
-        self.conversation.push(Message::user(text));
-
-        // Start loading and create streaming assistant message
+        // Start loading and let AgentRunner emit AssistantStart.
         self.is_loading = true;
-        self.streaming_start_time = Some(Instant::now());  // Start timing
-        let assistant_msg = ChatMessage::assistant_streaming(self.current_message_id);
-        self.message_list.add_message(assistant_msg);
-        self.current_message_id += 1;
-        self.streaming_assistant_text.clear();
-        self.streaming_assistant_tool_uses.clear();
-
-        // Create a channel for streaming
-        let (tx, rx) = mpsc::unbounded_channel();
-        self.stream_receiver = Some(rx);
-
-        // Clone what we need for the async task
-        let llm_client = self.llm_client.clone();
-        let conversation = self.conversation.clone();
-        let tool_definitions = Some(self.tool_registry.list_tool_definitions());
-
-        // Spawn async task to call LLM
-        tokio::spawn(async move {
-            match llm_client.stream_chat(conversation, tool_definitions).await {
-                Ok(mut stream) => {
-                    use futures::StreamExt;
-                    while let Some(chunk) = stream.next().await {
-                        if tx.send(AsyncEvent::Llm(chunk)).is_err() {
-                            break; // Receiver dropped
-                        }
-                    }
-                }
-                Err(e) => {
-                    let _ = tx.send(AsyncEvent::Llm(StreamChunk::Error(e.to_string())));
-                }
-            }
-        });
+        self.streaming_start_time = None;
+        self.stream_receiver = Some(self.agent.start_turn(text));
+        self.mark_dirty();
     }
 
     /// Render the application UI

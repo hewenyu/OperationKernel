@@ -2,6 +2,7 @@
 //!
 //! This library exports the tool system for testing and potential reuse.
 
+pub mod agent;
 pub mod config;
 pub mod event;
 pub mod llm;
