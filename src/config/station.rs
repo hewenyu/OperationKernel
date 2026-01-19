@@ -7,6 +7,19 @@ pub struct Config {
     #[serde(default)]
     pub debug: bool,
 
+    /// Optional debug log path (directory or file path).
+    /// If not set, defaults to `~/.config/ok/ok-debug.log`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debug_log_path: Option<String>,
+
+    /// Debug log rotation strategy: "session" | "daily" | "none"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debug_log_rotation: Option<DebugLogRotation>,
+
+    /// Keep last N rotated log files (only for "session" and "daily").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debug_log_keep: Option<usize>,
+
     /// Default station to use
     #[serde(default = "default_station_id")]
     pub default_station: String,
@@ -20,6 +33,9 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             debug: false,
+            debug_log_path: None,
+            debug_log_rotation: None,
+            debug_log_keep: None,
             default_station: "claude".to_string(),
             stations: vec![
                 Station {
@@ -86,6 +102,15 @@ impl Provider {
             Provider::Gemini => "https://generativelanguage.googleapis.com",
         }
     }
+}
+
+/// Debug log rotation strategy.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DebugLogRotation {
+    Session,
+    Daily,
+    None,
 }
 
 fn default_station_id() -> String {

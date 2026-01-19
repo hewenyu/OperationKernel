@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
     let config = config::load_or_create_config()?;
 
     // Initialize debug logging (writes to ~/.config/ok/ok-debug.log when enabled)
-    let _log_guard = logging::init(config.debug).unwrap_or_else(|e| {
+    let _log_guard = logging::init(&config).unwrap_or_else(|e| {
         eprintln!("Failed to initialize debug logging: {e}");
         None
     });

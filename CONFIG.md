@@ -15,6 +15,16 @@
 ### 基础配置示例
 
 ```toml
+debug = false
+# 可选：debug 日志文件路径（目录或文件路径）
+# debug_log_path = "~/.config/ok/ok-debug.log"
+#
+# 可选：日志滚动策略（session | daily | none），默认 session
+# debug_log_rotation = "session"
+#
+# 可选：保留最近 N 个滚动文件（仅对 session/daily 生效）
+# debug_log_keep = 20
+
 default_station = "claude"
 
 [[stations]]
@@ -32,7 +42,27 @@ temperature = 1.0
 
 ### 全局配置
 
+- **`debug`** (可选): 是否开启 debug 日志（默认 `false`）
 - **`default_station`** (必填): 默认使用的站点 ID
+
+当 `debug = true` 时，会将 debug 日志写入：
+
+```
+~/.config/ok/ok-debug.log
+```
+
+#### Debug 日志相关
+
+- **`debug_log_path`** (可选): debug 日志路径（目录或文件路径）
+  - 目录：例如 `debug_log_path = "~/.config/ok/"`，会在该目录下创建默认文件名
+  - 文件：例如 `debug_log_path = "~/.config/ok/ok-debug.log"`
+- **`debug_log_rotation`** (可选): 滚动策略
+  - `"session"`：每次启动生成一个新文件（推荐调试）
+  - `"daily"`：按天滚动
+  - `"none"`：不滚动，始终追加到同一个文件
+- **`debug_log_keep`** (可选): 保留滚动文件数量
+  - `session` 默认保留 20 个
+  - `daily` 默认保留 7 个
 
 ### 站点配置 (`[[stations]]`)
 
