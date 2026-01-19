@@ -125,6 +125,12 @@ impl Tool for BashTool {
         };
 
         // 5. Format output
+        tracing::debug!(
+            stdout_preview = &stdout[..stdout.len().min(100)],
+            stderr_preview = &stderr[..stderr.len().min(100)],
+            "bash output streams captured"
+        );
+
         let mut final_output = String::new();
 
         if !stdout.is_empty() {
@@ -141,6 +147,12 @@ impl Tool for BashTool {
         if final_output.is_empty() {
             final_output.push_str("(No output)");
         }
+
+        tracing::debug!(
+            final_output_len = final_output.len(),
+            final_output_preview = &final_output[..final_output.len().min(100)],
+            "bash final_output constructed"
+        );
 
         // 6. Determine if command failed
         let title = if !params.description.is_empty() {

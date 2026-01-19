@@ -474,21 +474,41 @@ impl App {
                 // 4. Format result and add to conversation
                 let (result_content, is_error) = match result {
                     Ok(tool_result) => {
+                        tracing::debug!(
+                            tool_name = %tool_name,
+                            output_len = tool_result.output.len(),
+                            output_preview = &tool_result.output[..tool_result.output.len().min(100)],
+                            title = %tool_result.title,
+                            "tool execution successful"
+                        );
+
                         // Successful execution - format output
-                        (
-                        format!(
+                        let formatted = format!(
                             "Tool: {}\nOutput:\n{}",
                             tool_result.title,
                             tool_result.output
-                        ),
-                        false,
-                        )
+                        );
+
+                        if tool_result.output.is_empty() {
+                            tracing::warn!(
+                                tool_name = %tool_name,
+                                "tool output is empty despite successful execution"
+                            );
+                        }
+
+                        (formatted, false)
                     }
                     Err(e) => {
                         // Tool execution failed - include error
                         (format!("Tool execution failed: {}", e), true)
                     }
                 };
+
+                tracing::debug!(
+                    result_content_len = result_content.len(),
+                    result_content_preview = &result_content[..result_content.len().min(200)],
+                    "sending tool result to UI"
+                );
 
                 let _ = tx.send(AsyncEvent::ToolResult {
                     tool_use_id: tool_use_id.clone(),
