@@ -105,8 +105,12 @@ impl MessageList {
         // Height is just the number of content lines (no borders, no separate header)
         let content_lines = wrapped_lines.len().max(1) as u16;
 
-        // Add 1 for the blank line between messages (handled in calculate_total_height)
-        content_lines
+        // Include blank line if not the last message (matching render_message behavior)
+        if message_idx < self.messages.len() - 1 {
+            content_lines + 1  // +1 for blank line between messages
+        } else {
+            content_lines
+        }
     }
 
     /// Get wrapped text using cache (optimized)
@@ -184,9 +188,9 @@ impl MessageList {
         let mut total = 0;
         for i in 0..self.messages.len() {
             total += self.calculate_message_height(i, width);
-            total += 1; // 1 blank line between messages
+            // Blank line now included in calculate_message_height()
         }
-        total.saturating_sub(1) // Remove last spacing
+        total
     }
 
     /// Render the message list
@@ -208,7 +212,7 @@ impl MessageList {
         for i in 0..self.messages.len() {
             let height = self.calculate_message_height(i, width);
             message_positions.push((current_y, height));
-            current_y += height + 1; // +1 for blank line between messages
+            current_y += height; // Height already includes blank line
         }
 
         // Render only visible messages
@@ -312,13 +316,12 @@ impl MessageList {
         let total_height = self.calculate_total_height(self.viewport_width.max(1));
         let max_scroll = total_height.saturating_sub(self.viewport_height);
 
-        if self.scroll_offset < max_scroll {
-            self.scroll_offset = (self.scroll_offset + lines).min(max_scroll);
+        // Always allow scrolling, even if already at max
+        self.scroll_offset = (self.scroll_offset + lines).min(max_scroll);
 
-            // Check if we've scrolled to the bottom
-            if self.scroll_offset >= max_scroll {
-                self.auto_scroll = true;
-            }
+        // Re-enable auto-scroll if we've reached the bottom
+        if self.scroll_offset >= max_scroll {
+            self.auto_scroll = true;
         }
     }
 
