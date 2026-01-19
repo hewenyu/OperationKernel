@@ -1,6 +1,7 @@
 mod config;
 mod event;
 mod llm;
+mod tool;
 mod tui;
 
 use crate::event::{Event, EventResult};

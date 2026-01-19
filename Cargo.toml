@@ -43,6 +43,10 @@ textwrap = "0.16"
 # Time display
 chrono = "0.4"
 
+# Tool system
+async-trait = "0.1"
+similar = "2.3"
+
 [profile.release]
 opt-level = 3
 lto = true

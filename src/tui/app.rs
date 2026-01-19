@@ -1,6 +1,8 @@
 use crate::event::{Event, EventResult};
 use crate::llm::anthropic::AnthropicClient;
-use crate::llm::types::{Message, StreamChunk};
+use crate::llm::types::{Message, StreamChunk, ToolUse};
+use crate::tool::base::ToolContext;
+use crate::tool::ToolRegistry;
 use crate::tui::{ChatMessage, InputWidget, MessageList};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -10,6 +12,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// Main application state
@@ -30,6 +33,10 @@ pub struct App {
     is_loading: bool,
     /// Channel receiver for streaming responses
     stream_receiver: Option<mpsc::UnboundedReceiver<StreamChunk>>,
+    /// Tool registry for executing tools
+    tool_registry: Arc<ToolRegistry>,
+    /// Pending tool calls that need execution
+    pending_tool_calls: Vec<ToolUse>,
 }
 
 impl App {
@@ -66,6 +73,8 @@ impl App {
             should_quit: false,
             is_loading: false,
             stream_receiver: None,
+            tool_registry: Arc::new(ToolRegistry::new()),
+            pending_tool_calls: Vec::new(),
         }
     }
 
@@ -92,18 +101,34 @@ impl App {
                     msg.append_content(&text);
                 }
             }
+            StreamChunk::ToolUse(tool_use) => {
+                // Display tool call in TUI
+                let tool_msg = format!("🔧 Calling tool: {} ({})", tool_use.name, tool_use.id);
+                if let Some(msg) = self.message_list.get_current_streaming_mut() {
+                    msg.append_content(&format!("\n\n{}", tool_msg));
+                }
+
+                // Store tool use for execution
+                self.pending_tool_calls.push(tool_use);
+            }
             StreamChunk::Done => {
                 // Mark message as complete and add to conversation
                 if let Some(msg) = self.message_list.get_current_streaming_mut() {
                     let content = msg.content.clone();
                     msg.complete();
-                    
+
                     if !content.is_empty() {
                         self.conversation.push(Message::assistant(content));
                     }
                 }
-                self.is_loading = false;
-                self.stream_receiver = None;
+
+                // Execute pending tool calls
+                if !self.pending_tool_calls.is_empty() {
+                    self.execute_pending_tools();
+                } else {
+                    self.is_loading = false;
+                    self.stream_receiver = None;
+                }
             }
             StreamChunk::Error(err) => {
                 // Add error message
@@ -112,9 +137,10 @@ impl App {
                     err.clone(),
                 ));
                 self.current_message_id += 1;
-                
+
                 self.is_loading = false;
                 self.stream_receiver = None;
+                self.pending_tool_calls.clear();
             }
         }
     }
@@ -218,6 +244,102 @@ impl App {
         self.message_list.enable_auto_scroll();
     }
 
+    /// Execute all pending tool calls
+    fn execute_pending_tools(&mut self) {
+        let tool_calls = std::mem::take(&mut self.pending_tool_calls);
+        let registry = self.tool_registry.clone();
+        let working_dir = std::env::current_dir().unwrap_or_default();
+
+        // Create a message for tool execution status
+        let tool_status_msg = ChatMessage::system(
+            self.current_message_id,
+            format!("⚙️  Executing {} tool(s)...", tool_calls.len()),
+        );
+        self.message_list.add_message(tool_status_msg);
+        self.current_message_id += 1;
+
+        // Clone conversation for the async task
+        let mut conversation = self.conversation.clone();
+        let llm_client = self.llm_client.clone();
+        let (tx, rx) = mpsc::unbounded_channel();
+        self.stream_receiver = Some(rx);
+
+        // Create streaming assistant message for the response
+        let assistant_msg = ChatMessage::assistant_streaming(self.current_message_id);
+        self.message_list.add_message(assistant_msg);
+        self.current_message_id += 1;
+
+        // Spawn async task to execute tools and continue conversation
+        tokio::spawn(async move {
+            use crate::llm::types::Message;
+
+            // Execute each tool sequentially
+            for tool_use in tool_calls {
+                // 1. Get the tool from registry
+                let tool = match registry.get(&tool_use.name) {
+                    Some(t) => t,
+                    None => {
+                        // Tool not found - add error result
+                        let error_msg = format!("Tool '{}' not found", tool_use.name);
+                        conversation.push(Message::user_with_tool_result(
+                            tool_use.id,
+                            error_msg,
+                        ));
+                        continue;
+                    }
+                };
+
+                // 2. Create tool execution context
+                let ctx = ToolContext::new(
+                    "session_1",
+                    "msg_1",
+                    "default",
+                    working_dir.clone(),
+                );
+
+                // 3. Execute the tool
+                let result = tool.execute(tool_use.input, &ctx).await;
+
+                // 4. Format result and add to conversation
+                let result_content = match result {
+                    Ok(tool_result) => {
+                        // Successful execution - format output
+                        format!(
+                            "Tool: {}\nOutput:\n{}",
+                            tool_result.title,
+                            tool_result.output
+                        )
+                    }
+                    Err(e) => {
+                        // Tool execution failed - include error
+                        format!("Tool execution failed: {}", e)
+                    }
+                };
+
+                conversation.push(Message::user_with_tool_result(
+                    tool_use.id,
+                    result_content,
+                ));
+            }
+
+            // 5. After all tools execute, continue the conversation with Claude
+            let tool_definitions = Some(registry.list_tool_definitions());
+            match llm_client.stream_chat(conversation, tool_definitions).await {
+                Ok(mut stream) => {
+                    use futures::StreamExt;
+                    while let Some(chunk) = stream.next().await {
+                        if tx.send(chunk).is_err() {
+                            break; // Receiver dropped
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(StreamChunk::Error(e.to_string()));
+                }
+            }
+        });
+    }
+
     /// Submit the current message and start LLM streaming
     fn submit_message(&mut self) {
         let text = self.input.take_text();
@@ -245,10 +367,11 @@ impl App {
         // Clone what we need for the async task
         let llm_client = self.llm_client.clone();
         let conversation = self.conversation.clone();
+        let tool_definitions = Some(self.tool_registry.list_tool_definitions());
 
         // Spawn async task to call LLM
         tokio::spawn(async move {
-            match llm_client.stream_chat(conversation).await {
+            match llm_client.stream_chat(conversation, tool_definitions).await {
                 Ok(mut stream) => {
                     use futures::StreamExt;
                     while let Some(chunk) = stream.next().await {

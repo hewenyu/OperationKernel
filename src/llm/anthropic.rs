@@ -1,5 +1,5 @@
 use crate::config::station::Station;
-use crate::llm::types::{Message, StreamChunk};
+use crate::llm::types::{Message, StreamChunk, ToolUse};
 use anyhow::{Context, Result};
 use eventsource_stream::Eventsource;
 use futures::stream::StreamExt;
@@ -27,6 +27,7 @@ impl AnthropicClient {
     pub async fn stream_chat(
         &self,
         messages: Vec<Message>,
+        tools: Option<Vec<serde_json::Value>>,
     ) -> Result<Pin<Box<dyn Stream<Item = StreamChunk> + Send>>> {
         let api_base = self
             .station
@@ -42,6 +43,7 @@ impl AnthropicClient {
             max_tokens: self.station.max_tokens.unwrap_or(8192),
             temperature: self.station.temperature,
             stream: true,
+            tools,
         };
 
         let response = self
@@ -69,7 +71,14 @@ impl AnthropicClient {
             .eventsource()
             .map(|event| match event {
                 Ok(event) => {
-                    if event.event == "content_block_delta" {
+                    if event.event == "content_block_start" {
+                        // Parse tool use
+                        if let Ok(block_start) = serde_json::from_str::<ContentBlockStart>(&event.data) {
+                            if let Some(tool_use) = block_start.content_block.tool_use {
+                                return StreamChunk::ToolUse(tool_use);
+                            }
+                        }
+                    } else if event.event == "content_block_delta" {
                         // Parse the delta content
                         if let Ok(delta) = serde_json::from_str::<ContentBlockDelta>(&event.data) {
                             if let Some(text) = delta.delta.text {
@@ -102,6 +111,22 @@ struct CreateMessageRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<serde_json::Value>>,
+}
+
+/// Content block start event (for tool_use)
+#[derive(Debug, Deserialize)]
+struct ContentBlockStart {
+    content_block: ContentBlockData,
+}
+
+#[derive(Debug, Deserialize)]
+struct ContentBlockData {
+    #[serde(rename = "type")]
+    _type: String,
+    #[serde(flatten)]
+    tool_use: Option<ToolUse>,
 }
 
 /// Content block delta event
