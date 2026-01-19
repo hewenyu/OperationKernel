@@ -243,6 +243,33 @@ async fn test_grep_exclude_patterns() {
 }
 
 #[tokio::test]
+async fn test_grep_include_and_exclude_patterns_combined() {
+    let fixture = TestFixture::new();
+    fixture.create_tree(vec![
+        ("keep.rs", "MATCH in rust"),
+        ("drop.txt", "MATCH in text"),
+        ("also.rs", "MATCH in rust too"),
+    ]);
+
+    let tool = GrepTool::new();
+    let ctx = create_test_context(fixture.path());
+
+    let params = json!({
+        "pattern": "MATCH",
+        "include_patterns": ["*.rs", "*.txt"],
+        "exclude_patterns": ["*.txt"]
+    });
+
+    let result = tool.execute(params, &ctx).await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    assert!(output.output.contains("keep.rs"));
+    assert!(output.output.contains("also.rs"));
+    assert!(!output.output.contains("drop.txt"));
+}
+
+#[tokio::test]
 async fn test_grep_skips_binary_files() {
     let fixture = TestFixture::new();
     fixture.create_file("text.txt", "MATCH in text");

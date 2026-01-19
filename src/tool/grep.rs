@@ -42,7 +42,6 @@ impl GrepTool {
         &self,
         file_path: &Path,
         pattern: &regex::Regex,
-        case_sensitive: bool,
         context_lines: usize,
     ) -> anyhow::Result<Vec<Match>> {
         // Skip binary files
@@ -59,13 +58,7 @@ impl GrepTool {
         let mut matches = Vec::new();
 
         for (line_idx, line) in lines.iter().enumerate() {
-            let line_to_check = if case_sensitive {
-                line.to_string()
-            } else {
-                line.to_lowercase()
-            };
-
-            if pattern.is_match(&line_to_check) {
+            if pattern.is_match(line) {
                 // Collect context lines
                 let start = line_idx.saturating_sub(context_lines);
                 let end = (line_idx + context_lines + 1).min(lines.len());
@@ -249,38 +242,39 @@ impl Tool for GrepTool {
             .git_global(true)
             .git_exclude(true);
 
-        // Add include patterns (glob filters)
-        if !params.include_patterns.is_empty() {
+        // Add include/exclude patterns (glob filters).
+        // IMPORTANT: Overrides must be built once; multiple `builder.overrides(...)` calls will
+        // replace the previous overrides and break include+exclude combination.
+        if !params.include_patterns.is_empty() || !params.exclude_patterns.is_empty() {
             let mut override_builder = ignore::overrides::OverrideBuilder::new(&search_path);
-            for pattern in &params.include_patterns {
-                override_builder
-                    .add(pattern)
-                    .map_err(|e| ToolError::InvalidParams(format!("Invalid include pattern: {}", e)))?;
-            }
-            let overrides = override_builder
-                .build()
-                .map_err(|e| ToolError::InvalidParams(format!("Failed to build overrides: {}", e)))?;
-            builder.overrides(overrides);
-        }
 
-        // Add exclude patterns
-        if !params.exclude_patterns.is_empty() {
-            let mut override_builder = ignore::overrides::OverrideBuilder::new(&search_path);
-            for pattern in &params.exclude_patterns {
+            // Without '!' => whitelist (include). With '!' => ignore (exclude).
+            for include in &params.include_patterns {
                 override_builder
-                    .add(&format!("!{}", pattern))
-                    .map_err(|e| ToolError::InvalidParams(format!("Invalid exclude pattern: {}", e)))?;
+                    .add(include)
+                    .map_err(|e| {
+                        ToolError::InvalidParams(format!("Invalid include pattern: {}", e))
+                    })?;
             }
+            for exclude in &params.exclude_patterns {
+                override_builder
+                    .add(&format!("!{}", exclude))
+                    .map_err(|e| {
+                        ToolError::InvalidParams(format!("Invalid exclude pattern: {}", e))
+                    })?;
+            }
+
             let overrides = override_builder
                 .build()
-                .map_err(|e| ToolError::InvalidParams(format!("Failed to build overrides: {}", e)))?;
+                .map_err(|e| {
+                    ToolError::InvalidParams(format!("Failed to build overrides: {}", e))
+                })?;
             builder.overrides(overrides);
         }
 
         // 4. Search files with timeout
         let max_results = params.max_results.min(self.max_results);
         let context_lines = params.context_lines;
-        let case_sensitive = params.case_sensitive;
 
         let search_future = tokio::task::spawn_blocking(move || {
             let walker = builder.build();
@@ -314,7 +308,7 @@ impl Tool for GrepTool {
 
                 // Search this file
                 let tool = GrepTool::new();
-                match tool.search_file(file_path, &pattern, case_sensitive, context_lines) {
+                match tool.search_file(file_path, &pattern, context_lines) {
                     Ok(mut matches) => {
                         all_matches.append(&mut matches);
                     }
