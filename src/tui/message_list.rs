@@ -96,13 +96,39 @@ impl MessageList {
             .find(|msg| !msg.is_complete)
     }
 
+    /// Get the display content for a message (used for both height calculation and rendering)
+    /// This ensures height calculation and rendering use the exact same content
+    fn get_display_content(&self, message_idx: usize) -> String {
+        if message_idx >= self.messages.len() {
+            return String::new();
+        }
+
+        let message = &self.messages[message_idx];
+
+        // Apply the same transformations for both height and rendering
+        if !message.is_complete {
+            // Streaming message
+            if message.content.is_empty() {
+                "⋯".to_string()  // Show ellipsis while waiting
+            } else {
+                let trimmed = message.content.trim();
+                format!("{} ▌", trimmed)  // Add cursor indicator
+            }
+        } else {
+            // Completed message - just trim
+            message.content.trim().to_string()
+        }
+    }
+
     /// Calculate the height of a message when rendered
     fn calculate_message_height(&mut self, message_idx: usize, width: u16) -> u16 {
-        // Calculate wrapped lines using cache
         let content_width = width.saturating_sub(2); // Only need space for bullet symbol + space
-        let wrapped_lines = self.get_wrapped_text_cached(message_idx, content_width as usize);
 
-        // Height is just the number of content lines (no borders, no separate header)
+        // Get the SAME content that will be rendered
+        let display_content = self.get_display_content(message_idx);
+
+        // Wrap the display content (not the raw message content!)
+        let wrapped_lines = self.wrap_text(&display_content, content_width as usize);
         let content_lines = wrapped_lines.len().max(1) as u16;
 
         // Include blank line if not the last message (matching render_message behavior)
@@ -132,28 +158,6 @@ impl MessageList {
 
         // Update cache
         self.render_cache[message_idx].update(wrapped.clone(), max_width, &message_content);
-
-        wrapped
-    }
-
-    /// Get wrapped text using cache with trimmed content
-    fn get_wrapped_text_cached_trimmed(&mut self, message_idx: usize, trimmed_content: &str, max_width: usize) -> Vec<String> {
-        if message_idx >= self.messages.len() {
-            return vec![String::new()];
-        }
-
-        // Check cache validity using trimmed content
-        let cache_valid = self.render_cache[message_idx].is_valid(max_width, trimmed_content);
-
-        if cache_valid {
-            return self.render_cache[message_idx].wrapped_lines.clone();
-        }
-
-        // Cache miss - compute wrapped text
-        let wrapped = self.wrap_text(trimmed_content, max_width);
-
-        // Update cache with trimmed content
-        self.render_cache[message_idx].update(wrapped.clone(), max_width, trimmed_content);
 
         wrapped
     }
@@ -255,28 +259,14 @@ impl MessageList {
             MessageRole::Error => (Color::LightRed, "⚠"),
         };
 
-        // Add cursor indicator for streaming messages
-        let content = if !message.is_complete {
-            if message.content.is_empty() {
-                "⋯".to_string()  // Show ellipsis while waiting for content
-            } else {
-                let trimmed = message.content.trim();
-                format!("{} ▌", trimmed)  // Half-block cursor with space
-            }
-        } else {
-            message.content.trim().to_string()
-        };
+        // Get the same display content used in height calculation
+        let content = self.get_display_content(message_idx);
 
         // Calculate content width (only need space for bullet symbol + space)
         let content_width = area.width.saturating_sub(2) as usize;
 
-        // For streaming messages with changing content, use direct wrapping
-        // For complete messages, use cache
-        let wrapped = if !message.is_complete {
-            self.wrap_text(&content, content_width)
-        } else {
-            self.get_wrapped_text_cached_trimmed(message_idx, &content, content_width)
-        };
+        // Always wrap directly (no caching for now, ensures consistency)
+        let wrapped = self.wrap_text(&content, content_width);
 
         // Build text lines without borders
         let mut lines = Vec::new();
