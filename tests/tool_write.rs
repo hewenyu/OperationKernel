@@ -5,10 +5,17 @@ mod common;
 use common::TestFixture;
 use ok::tool::{base::*, write::WriteTool};
 use serde_json::json;
+use std::sync::Arc;
 
 /// Helper to create a tool context for testing
 fn create_test_context(working_dir: std::path::PathBuf) -> ToolContext {
-    ToolContext::new("test_session", "test_msg", "test_station", working_dir)
+    ToolContext::new(
+        "test_session",
+        "test_msg",
+        "test_station",
+        working_dir,
+        Arc::new(ok::process::BackgroundShellManager::new()),
+    )
 }
 
 #[tokio::test]

@@ -39,9 +39,15 @@ fn test_all_tools_registered() {
     assert!(registry.get("edit").is_some(), "Edit tool should be registered");
     assert!(registry.get("todo_write").is_some(), "TodoWrite tool should be registered");
 
-    // Total count should be 7
+    // Additional tools
+    assert!(registry.get("notebook_edit").is_some(), "NotebookEdit tool should be registered");
+    assert!(registry.get("bash_output").is_some(), "BashOutput tool should be registered");
+    assert!(registry.get("kill_shell").is_some(), "KillShell tool should be registered");
+    assert!(registry.get("web_fetch").is_some(), "WebFetch tool should be registered");
+
+    // Total count should be 11
     let definitions = registry.list_tool_definitions();
-    assert_eq!(definitions.len(), 7, "Should have exactly 7 tools registered");
+    assert_eq!(definitions.len(), 11, "Should have exactly 11 tools registered");
 }
 
 #[test]

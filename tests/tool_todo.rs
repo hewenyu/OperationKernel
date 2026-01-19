@@ -6,10 +6,17 @@ use common::TestFixture;
 use ok::tool::{base::*, todo::TodoWriteTool};
 use serde_json::json;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Helper to create a tool context for testing
 fn create_test_context(session_id: &str, working_dir: PathBuf) -> ToolContext {
-    ToolContext::new(session_id, "test_msg", "test_station", working_dir)
+    ToolContext::new(
+        session_id,
+        "test_msg",
+        "test_station",
+        working_dir,
+        Arc::new(ok::process::BackgroundShellManager::new()),
+    )
 }
 
 #[tokio::test]
