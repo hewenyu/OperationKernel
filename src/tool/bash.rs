@@ -8,6 +8,50 @@ use tokio::io::AsyncReadExt;
 /// Bash tool - executes shell commands and returns output
 pub struct BashTool;
 
+impl BashTool {
+    /// Execute command in background mode
+    async fn execute_background(
+        &self,
+        params: BashParams,
+        ctx: &ToolContext,
+    ) -> Result<ToolResult, ToolError> {
+        // Generate a unique shell ID
+        let shell_id = format!("shell_{}", uuid::Uuid::new_v4());
+
+        tracing::info!(
+            shell_id = %shell_id,
+            command = %crate::logging::redact_secrets(&params.command),
+            "spawning background shell"
+        );
+
+        // Spawn the background shell
+        ctx.shell_manager
+            .spawn(shell_id.clone(), params.command.clone(), ctx.working_dir.clone())
+            .await
+            .map_err(|e| ToolError::Other(e))?;
+
+        // Return result with shell_id
+        let title = if !params.description.is_empty() {
+            format!("{} (background)", params.description)
+        } else {
+            format!("$ {} (background)", params.command)
+        };
+
+        let output = format!(
+            "Command started in background.\n\
+             Shell ID: {}\n\
+             Use 'bash_output' tool to monitor output.\n\
+             Use 'kill_shell' tool to terminate.",
+            shell_id
+        );
+
+        Ok(ToolResult::new(title, output)
+            .with_metadata("shell_id", json!(shell_id))
+            .with_metadata("command", json!(params.command))
+            .with_metadata("background", json!(true)))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct BashParams {
     command: String,
@@ -15,6 +59,8 @@ struct BashParams {
     timeout: u64, // milliseconds
     #[serde(default)]
     description: String,
+    #[serde(default)]
+    run_in_background: bool,
 }
 
 fn default_timeout() -> u64 {
@@ -30,6 +76,7 @@ impl Tool for BashTool {
     fn description(&self) -> &str {
         "Execute shell commands and capture stdout/stderr. \
          Supports timeout control (default 1 minute). \
+         Supports background execution mode for long-running commands. \
          Returns exit code and combined output."
     }
 
@@ -50,6 +97,11 @@ impl Tool for BashTool {
                     "type": "string",
                     "description": "Human-readable description of what this command does",
                     "default": ""
+                },
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": "Run command in background and return shell_id immediately",
+                    "default": false
                 }
             },
             "required": ["command"]
@@ -71,9 +123,15 @@ impl Tool for BashTool {
             working_dir = %ctx.working_dir.display(),
             timeout_ms = params.timeout,
             description = %params.description,
+            run_in_background = params.run_in_background,
             command = %crate::logging::redact_secrets(&params.command),
             "tool bash start"
         );
+
+        // Handle background execution mode
+        if params.run_in_background {
+            return self.execute_background(params, ctx).await;
+        }
 
         // 1. Create command process
         let mut child = tokio::process::Command::new("sh")

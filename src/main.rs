@@ -2,6 +2,7 @@ mod config;
 mod event;
 mod llm;
 mod logging;
+mod process;
 mod tool;
 mod tui;
 

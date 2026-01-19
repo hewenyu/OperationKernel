@@ -6,5 +6,6 @@ pub mod config;
 pub mod event;
 pub mod llm;
 pub mod logging;
+pub mod process;
 pub mod tool;
 pub mod tui;

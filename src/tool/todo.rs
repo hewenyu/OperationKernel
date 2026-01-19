@@ -298,6 +298,7 @@ mod tests {
             message_id: "test-message".to_string(),
             agent: "test-agent".to_string(),
             working_dir: PathBuf::from("/tmp"),
+            shell_manager: std::sync::Arc::new(crate::process::BackgroundShellManager::new()),
         }
     }
 

@@ -1,6 +1,7 @@
 use crate::event::{Event, EventResult};
 use crate::llm::anthropic::AnthropicClient;
 use crate::llm::types::{ContentBlock, Message, StreamChunk, ToolUse};
+use crate::process::BackgroundShellManager;
 use crate::tool::base::ToolContext;
 use crate::tool::ToolRegistry;
 use crate::tui::{ChatMessage, ErrorDetails, InputWidget, MessageList};
@@ -50,6 +51,8 @@ pub struct App {
     stream_receiver: Option<mpsc::UnboundedReceiver<AsyncEvent>>,
     /// Tool registry for executing tools
     tool_registry: Arc<ToolRegistry>,
+    /// Background shell manager for long-running processes
+    shell_manager: Arc<BackgroundShellManager>,
     /// Pending tool calls that need execution
     pending_tool_calls: Vec<ToolUse>,
     /// Streaming assistant plain text (excluding tool-call UI annotations)
@@ -101,6 +104,7 @@ impl App {
             is_loading: false,
             stream_receiver: None,
             tool_registry: Arc::new(ToolRegistry::new()),
+            shell_manager: Arc::new(crate::process::BackgroundShellManager::new()),
             pending_tool_calls: Vec::new(),
             streaming_assistant_text: String::new(),
             streaming_assistant_tool_uses: Vec::new(),
@@ -400,6 +404,7 @@ impl App {
     fn execute_pending_tools(&mut self) {
         let tool_calls = std::mem::take(&mut self.pending_tool_calls);
         let registry = self.tool_registry.clone();
+        let shell_manager = self.shell_manager.clone();
         let working_dir = std::env::current_dir().unwrap_or_default();
 
         tracing::debug!(
@@ -466,6 +471,7 @@ impl App {
                     tool_use_id.clone(),
                     "ok",
                     working_dir.clone(),
+                    shell_manager.clone(),
                 );
 
                 // 3. Execute the tool

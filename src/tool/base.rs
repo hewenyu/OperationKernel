@@ -2,14 +2,30 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
+
+use crate::process::BackgroundShellManager;
 
 /// Tool execution context - provides environment information to tools
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ToolContext {
     pub session_id: String,
     pub message_id: String,
     pub agent: String,
     pub working_dir: PathBuf,
+    pub shell_manager: Arc<BackgroundShellManager>,
+}
+
+impl std::fmt::Debug for ToolContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolContext")
+            .field("session_id", &self.session_id)
+            .field("message_id", &self.message_id)
+            .field("agent", &self.agent)
+            .field("working_dir", &self.working_dir)
+            .field("shell_manager", &"<BackgroundShellManager>")
+            .finish()
+    }
 }
 
 /// Tool execution result returned to Claude

@@ -1,12 +1,16 @@
 pub mod base;
 pub mod context;
 pub mod bash;
+pub mod bash_output;
+pub mod kill_shell;
 pub mod read;
 pub mod write;
 pub mod grep;
 pub mod glob;
 pub mod edit;
 pub mod todo;
+pub mod notebook;
+pub mod web_fetch;
 
 use base::Tool;
 use serde_json::json;
@@ -33,6 +37,16 @@ impl ToolRegistry {
         // Register extended tools (Phase 1)
         tools.insert("edit".to_string(), Arc::new(edit::EditTool));
         tools.insert("todo_write".to_string(), Arc::new(todo::TodoWriteTool::new()));
+
+        // Register file operation tools (Phase 1 - Additional)
+        tools.insert("notebook_edit".to_string(), Arc::new(notebook::NotebookEditTool));
+
+        // Register background process tools (Phase 2)
+        tools.insert("bash_output".to_string(), Arc::new(bash_output::BashOutputTool));
+        tools.insert("kill_shell".to_string(), Arc::new(kill_shell::KillShellTool));
+
+        // Register web integration tools (Phase 3)
+        tools.insert("web_fetch".to_string(), Arc::new(web_fetch::WebFetchTool::new()));
 
         Self { tools }
     }

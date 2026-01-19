@@ -1,6 +1,8 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use super::base::ToolContext;
+use crate::process::BackgroundShellManager;
 
 impl ToolContext {
     /// Create a new tool context
@@ -9,12 +11,14 @@ impl ToolContext {
         message_id: impl Into<String>,
         agent: impl Into<String>,
         working_dir: PathBuf,
+        shell_manager: Arc<BackgroundShellManager>,
     ) -> Self {
         Self {
             session_id: session_id.into(),
             message_id: message_id.into(),
             agent: agent.into(),
             working_dir,
+            shell_manager,
         }
     }
 
@@ -25,6 +29,7 @@ impl ToolContext {
             message_id: "default".to_string(),
             agent: "default".to_string(),
             working_dir: std::env::current_dir()?,
+            shell_manager: Arc::new(BackgroundShellManager::new()),
         })
     }
 }

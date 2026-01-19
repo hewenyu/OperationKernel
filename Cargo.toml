@@ -59,6 +59,7 @@ ignore = "0.4"      # .gitignore support + fast directory traversal
 regex = "1.10"      # Regular expression matching
 globset = "0.4"     # Glob pattern matching
 uuid = { version = "1", features = ["v4", "serde"] }  # UUID generation for TodoWrite
+html2text = "0.12"  # HTML to markdown conversion for WebFetch
 
 [dev-dependencies]
 tempfile = "3"
