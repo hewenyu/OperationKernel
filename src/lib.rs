@@ -1,0 +1,9 @@
+//! OperationKernel library
+//!
+//! This library exports the tool system for testing and potential reuse.
+
+pub mod config;
+pub mod event;
+pub mod llm;
+pub mod tool;
+pub mod tui;
