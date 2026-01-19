@@ -13,6 +13,7 @@ pub enum Role {
 pub struct ToolUse {
     pub id: String,
     pub name: String,
+    #[serde(default)]
     pub input: serde_json::Value,
 }
 
@@ -38,7 +39,6 @@ pub enum ContentBlock {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
-    #[serde(skip_serializing_if = "is_string")]
     pub content: MessageContent,
 }
 
@@ -48,10 +48,6 @@ pub struct Message {
 pub enum MessageContent {
     Text(String),
     Blocks(Vec<ContentBlock>),
-}
-
-fn is_string(content: &MessageContent) -> bool {
-    matches!(content, MessageContent::Text(_))
 }
 
 impl Message {

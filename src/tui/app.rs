@@ -1,6 +1,6 @@
 use crate::event::{Event, EventResult};
 use crate::llm::anthropic::AnthropicClient;
-use crate::llm::types::{Message, StreamChunk, ToolUse};
+use crate::llm::types::{ContentBlock, Message, StreamChunk, ToolUse};
 use crate::tool::base::ToolContext;
 use crate::tool::ToolRegistry;
 use crate::tui::{ChatMessage, InputWidget, MessageList};
@@ -37,6 +37,10 @@ pub struct App {
     tool_registry: Arc<ToolRegistry>,
     /// Pending tool calls that need execution
     pending_tool_calls: Vec<ToolUse>,
+    /// Streaming assistant plain text (excluding tool-call UI annotations)
+    streaming_assistant_text: String,
+    /// Streaming assistant tool_use blocks (for API follow-up)
+    streaming_assistant_tool_uses: Vec<ToolUse>,
 }
 
 impl App {
@@ -75,6 +79,8 @@ impl App {
             stream_receiver: None,
             tool_registry: Arc::new(ToolRegistry::new()),
             pending_tool_calls: Vec::new(),
+            streaming_assistant_text: String::new(),
+            streaming_assistant_tool_uses: Vec::new(),
         }
     }
 
@@ -100,6 +106,7 @@ impl App {
                 if let Some(msg) = self.message_list.get_current_streaming_mut() {
                     msg.append_content(&text);
                 }
+                self.streaming_assistant_text.push_str(&text);
             }
             StreamChunk::ToolUse(tool_use) => {
                 // Display tool call in TUI
@@ -109,17 +116,27 @@ impl App {
                 }
 
                 // Store tool use for execution
+                self.streaming_assistant_tool_uses.push(tool_use.clone());
                 self.pending_tool_calls.push(tool_use);
             }
             StreamChunk::Done => {
                 // Mark message as complete and add to conversation
                 if let Some(msg) = self.message_list.get_current_streaming_mut() {
-                    let content = msg.content.clone();
                     msg.complete();
+                }
 
-                    if !content.is_empty() {
-                        self.conversation.push(Message::assistant(content));
+                let assistant_text = std::mem::take(&mut self.streaming_assistant_text);
+                let assistant_tool_uses = std::mem::take(&mut self.streaming_assistant_tool_uses);
+
+                if !assistant_tool_uses.is_empty() {
+                    let mut blocks = Vec::new();
+                    if !assistant_text.is_empty() {
+                        blocks.push(ContentBlock::Text { text: assistant_text });
                     }
+                    blocks.extend(assistant_tool_uses.into_iter().map(ContentBlock::ToolUse));
+                    self.conversation.push(Message::assistant_with_blocks(blocks));
+                } else if !assistant_text.is_empty() {
+                    self.conversation.push(Message::assistant(assistant_text));
                 }
 
                 // Execute pending tool calls
@@ -141,6 +158,8 @@ impl App {
                 self.is_loading = false;
                 self.stream_receiver = None;
                 self.pending_tool_calls.clear();
+                self.streaming_assistant_text.clear();
+                self.streaming_assistant_tool_uses.clear();
             }
         }
     }
@@ -268,6 +287,8 @@ impl App {
         let assistant_msg = ChatMessage::assistant_streaming(self.current_message_id);
         self.message_list.add_message(assistant_msg);
         self.current_message_id += 1;
+        self.streaming_assistant_text.clear();
+        self.streaming_assistant_tool_uses.clear();
 
         // Spawn async task to execute tools and continue conversation
         tokio::spawn(async move {
@@ -359,6 +380,8 @@ impl App {
         let assistant_msg = ChatMessage::assistant_streaming(self.current_message_id);
         self.message_list.add_message(assistant_msg);
         self.current_message_id += 1;
+        self.streaming_assistant_text.clear();
+        self.streaming_assistant_tool_uses.clear();
 
         // Create a channel for streaming
         let (tx, rx) = mpsc::unbounded_channel();

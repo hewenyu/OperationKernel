@@ -69,34 +69,89 @@ impl AnthropicClient {
         let stream = response
             .bytes_stream()
             .eventsource()
-            .map(|event| match event {
-                Ok(event) => {
-                    if event.event == "content_block_start" {
-                        // Parse tool use
-                        if let Ok(block_start) = serde_json::from_str::<ContentBlockStart>(&event.data) {
-                            if let Some(tool_use) = block_start.content_block.tool_use {
-                                return StreamChunk::ToolUse(tool_use);
+            .scan(StreamState::default(), |state, event| {
+                let out: Option<StreamChunk> = match event {
+                    Err(e) => Some(StreamChunk::Error(e.to_string())),
+                    Ok(event) => match event.event.as_str() {
+                        "content_block_start" => {
+                            let Ok(start) = serde_json::from_str::<ContentBlockStart>(&event.data)
+                            else {
+                                return futures::future::ready(Some(None));
+                            };
+
+                            if start.content_block.block_type == "tool_use" {
+                                let (Some(id), Some(name)) =
+                                    (start.content_block.id, start.content_block.name)
+                                else {
+                                    return futures::future::ready(Some(None));
+                                };
+
+                                state.pending_tool = Some(PendingToolUse {
+                                    id,
+                                    name,
+                                    input: start.content_block.input,
+                                    input_json: String::new(),
+                                });
+                            }
+                            None
+                        }
+                        "content_block_delta" => {
+                            let Ok(delta) = serde_json::from_str::<ContentBlockDelta>(&event.data)
+                            else {
+                                return futures::future::ready(Some(None));
+                            };
+
+                            match delta.delta.delta_type.as_str() {
+                                "text_delta" => delta.delta.text.map(StreamChunk::Text),
+                                "input_json_delta" => {
+                                    if let (Some(pending), Some(partial)) = (
+                                        state.pending_tool.as_mut(),
+                                        delta.delta.partial_json,
+                                    ) {
+                                        pending.input_json.push_str(&partial);
+                                    }
+                                    None
+                                }
+                                _ => None,
                             }
                         }
-                    } else if event.event == "content_block_delta" {
-                        // Parse the delta content
-                        if let Ok(delta) = serde_json::from_str::<ContentBlockDelta>(&event.data) {
-                            if let Some(text) = delta.delta.text {
-                                return StreamChunk::Text(text);
-                            }
+                        "content_block_stop" => {
+                            let Some(pending) = state.pending_tool.take() else {
+                                return futures::future::ready(Some(None));
+                            };
+
+                            let input = if pending.input_json.trim().is_empty() {
+                                pending.input
+                            } else {
+                                match serde_json::from_str::<serde_json::Value>(
+                                    &pending.input_json,
+                                ) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        return futures::future::ready(Some(Some(StreamChunk::Error(
+                                            format!(
+                                                "Failed to parse tool input JSON for '{}': {e}",
+                                                pending.name
+                                            ),
+                                        ))));
+                                    }
+                                }
+                            };
+
+                            Some(StreamChunk::ToolUse(ToolUse {
+                                id: pending.id,
+                                name: pending.name,
+                                input,
+                            }))
                         }
-                    } else if event.event == "message_stop" {
-                        return StreamChunk::Done;
-                    }
-                    // Ignore other event types
-                    StreamChunk::Text(String::new())
-                }
-                Err(e) => StreamChunk::Error(e.to_string()),
+                        "message_stop" => Some(StreamChunk::Done),
+                        _ => None,
+                    },
+                };
+
+                futures::future::ready(Some(out))
             })
-            .filter(|chunk| {
-                // Filter out empty text chunks
-                futures::future::ready(!matches!(chunk, StreamChunk::Text(s) if s.is_empty()))
-            });
+            .filter_map(|chunk| futures::future::ready(chunk));
 
         Ok(Box::pin(stream))
     }
@@ -124,9 +179,11 @@ struct ContentBlockStart {
 #[derive(Debug, Deserialize)]
 struct ContentBlockData {
     #[serde(rename = "type")]
-    _type: String,
-    #[serde(flatten)]
-    tool_use: Option<ToolUse>,
+    block_type: String,
+    id: Option<String>,
+    name: Option<String>,
+    #[serde(default = "default_tool_input")]
+    input: serde_json::Value,
 }
 
 /// Content block delta event
@@ -138,6 +195,23 @@ struct ContentBlockDelta {
 #[derive(Debug, Deserialize)]
 struct Delta {
     #[serde(rename = "type")]
-    _type: String,
+    delta_type: String,
     text: Option<String>,
+    partial_json: Option<String>,
+}
+
+fn default_tool_input() -> serde_json::Value {
+    serde_json::json!({})
+}
+
+#[derive(Default)]
+struct StreamState {
+    pending_tool: Option<PendingToolUse>,
+}
+
+struct PendingToolUse {
+    id: String,
+    name: String,
+    input: serde_json::Value,
+    input_json: String,
 }
