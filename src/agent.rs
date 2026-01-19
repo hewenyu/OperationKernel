@@ -31,6 +31,37 @@ pub enum AgentEvent {
     TurnComplete,
     /// Fatal error for the current turn.
     Error(String),
+    /// User question requested (AskUserQuestion tool awaiting response).
+    UserQuestionRequest {
+        tool_use_id: String,
+        questions: Vec<Question>,
+    },
+    /// User question response received from UI.
+    UserQuestionResponse {
+        tool_use_id: String,
+        answers: std::collections::HashMap<String, String>,
+    },
+    /// Plan approval requested (ExitPlanMode tool awaiting approval).
+    PlanApprovalRequest {
+        plan_content: String,
+        plan_file: std::path::PathBuf,
+    },
+}
+
+/// Question definition for AskUserQuestion tool
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Question {
+    pub question: String,
+    pub header: String,
+    pub options: Vec<QuestionOption>,
+    pub multi_select: bool,
+}
+
+/// Question option definition
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct QuestionOption {
+    pub label: String,
+    pub description: String,
 }
 
 /// Agent runner: manages conversation state, tool execution, and LLM streaming.

@@ -210,6 +210,53 @@ impl App {
                 self.streaming_start_time = None;
                 self.mark_dirty();
             }
+            AgentEvent::UserQuestionRequest {
+                tool_use_id,
+                questions,
+            } => {
+                // TODO: Implement QuestionWidget UI
+                // For now, just display a message
+                let msg = format!(
+                    "📋 User input requested (tool_use_id: {})\n{} question(s) pending...",
+                    tool_use_id,
+                    questions.len()
+                );
+                self.message_list
+                    .add_message(ChatMessage::system(self.current_message_id, msg));
+                self.current_message_id += 1;
+                self.mark_dirty();
+            }
+            AgentEvent::UserQuestionResponse {
+                tool_use_id,
+                answers,
+            } => {
+                // TODO: Process user response
+                let msg = format!(
+                    "✅ User responses received (tool_use_id: {})\n{} answer(s) provided",
+                    tool_use_id,
+                    answers.len()
+                );
+                self.message_list
+                    .add_message(ChatMessage::system(self.current_message_id, msg));
+                self.current_message_id += 1;
+                self.mark_dirty();
+            }
+            AgentEvent::PlanApprovalRequest {
+                plan_content,
+                plan_file,
+            } => {
+                // TODO: Implement PlanApprovalWidget UI
+                // For now, just display a message
+                let msg = format!(
+                    "📝 Plan approval requested\nFile: {}\nContent length: {} chars",
+                    plan_file.display(),
+                    plan_content.len()
+                );
+                self.message_list
+                    .add_message(ChatMessage::system(self.current_message_id, msg));
+                self.current_message_id += 1;
+                self.mark_dirty();
+            }
         }
     }
 

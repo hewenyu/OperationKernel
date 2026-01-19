@@ -11,6 +11,9 @@ pub mod edit;
 pub mod todo;
 pub mod notebook;
 pub mod web_fetch;
+pub mod ask_user_question;
+pub mod enter_plan_mode;
+pub mod exit_plan_mode;
 
 use base::Tool;
 use serde_json::json;
@@ -47,6 +50,11 @@ impl ToolRegistry {
 
         // Register web integration tools (Phase 3)
         tools.insert("web_fetch".to_string(), Arc::new(web_fetch::WebFetchTool::new()));
+
+        // Register interactive tools (Phase 4)
+        tools.insert("ask_user_question".to_string(), Arc::new(ask_user_question::AskUserQuestionTool));
+        tools.insert("enter_plan_mode".to_string(), Arc::new(enter_plan_mode::EnterPlanModeTool));
+        tools.insert("exit_plan_mode".to_string(), Arc::new(exit_plan_mode::ExitPlanModeTool));
 
         Self { tools }
     }
