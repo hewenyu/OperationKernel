@@ -160,6 +160,7 @@ impl App {
     pub fn handle_stream_chunk(&mut self, chunk: StreamChunk) {
         match chunk {
             StreamChunk::Text(text) => {
+                tracing::debug!(delta_bytes = text.len(), "stream text delta");
                 // Append to the current streaming message
                 if let Some(msg) = self.message_list.get_current_streaming_mut() {
                     msg.append_content(&text);
@@ -168,6 +169,11 @@ impl App {
                 self.mark_dirty();  // New content needs render
             }
             StreamChunk::ToolUse(tool_use) => {
+                tracing::debug!(
+                    tool_id = %tool_use.id,
+                    tool_name = %tool_use.name,
+                    "stream tool_use"
+                );
                 // Display tool call in TUI
                 let tool_msg = format!("🔧 Calling tool: {} ({})", tool_use.name, tool_use.id);
                 if let Some(msg) = self.message_list.get_current_streaming_mut() {
@@ -180,6 +186,12 @@ impl App {
                 self.mark_dirty();  // Tool use message needs render
             }
             StreamChunk::Done => {
+                tracing::debug!(
+                    assistant_text_bytes = self.streaming_assistant_text.len(),
+                    tool_uses = self.streaming_assistant_tool_uses.len(),
+                    pending_tools = self.pending_tool_calls.len(),
+                    "stream done"
+                );
                 // Mark message as complete and add to conversation
                 if let Some(msg) = self.message_list.get_current_streaming_mut() {
                     msg.complete();
@@ -210,6 +222,7 @@ impl App {
                 self.mark_dirty();  // State changed
             }
             StreamChunk::Error(err) => {
+                tracing::warn!(error = %crate::logging::redact_secrets(&err), "stream error");
                 // Add enhanced error message
                 let error_details = ErrorDetails::from_message(err.clone());
                 self.message_list.add_message(ChatMessage::error_from_details(
@@ -344,6 +357,12 @@ impl App {
         let registry = self.tool_registry.clone();
         let working_dir = std::env::current_dir().unwrap_or_default();
 
+        tracing::debug!(
+            working_dir = %working_dir.display(),
+            tool_count = tool_calls.len(),
+            "executing pending tools"
+        );
+
         // Create a message for tool execution status
         let tool_status_msg = ChatMessage::system(
             self.current_message_id,
@@ -443,6 +462,12 @@ impl App {
         if text.trim().is_empty() {
             return;
         }
+
+        tracing::debug!(
+            user_bytes = text.len(),
+            conversation_len = self.conversation.len(),
+            "submit message"
+        );
 
         // Add user message
         let user_msg = ChatMessage::user(self.current_message_id, text.clone());

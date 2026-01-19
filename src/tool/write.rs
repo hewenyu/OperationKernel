@@ -71,6 +71,13 @@ impl Tool for WriteTool {
         let params: WriteParams = serde_json::from_value(params)
             .map_err(|e| ToolError::InvalidParams(e.to_string()))?;
 
+        tracing::debug!(
+            working_dir = %ctx.working_dir.display(),
+            file_path = %params.file_path.display(),
+            bytes = params.content.len(),
+            "tool write start"
+        );
+
         // 1. Resolve file path (relative to working directory)
         let filepath = if params.file_path.is_absolute() {
             params.file_path
@@ -109,6 +116,13 @@ impl Tool for WriteTool {
         // 6. Build output message
         let mut output = format!("Successfully wrote to: {}\n\n", filepath.display());
         output.push_str(&diff);
+
+        tracing::debug!(
+            resolved_path = %filepath.display(),
+            existed = old_content.is_some(),
+            bytes_written = params.content.len(),
+            "tool write done"
+        );
 
         // 7. Return result
         Ok(ToolResult::new(

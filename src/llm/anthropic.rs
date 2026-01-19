@@ -37,6 +37,14 @@ impl AnthropicClient {
 
         let url = format!("{}/v1/messages", api_base);
 
+        tracing::debug!(
+            api_base = %api_base,
+            model = %self.station.model,
+            message_count = messages.len(),
+            tool_count = tools.as_ref().map(|t| t.len()).unwrap_or(0),
+            "anthropic stream_chat request"
+        );
+
         let request_body = CreateMessageRequest {
             model: self.station.model.clone(),
             messages,
@@ -63,6 +71,12 @@ impl AnthropicClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
+
+            tracing::warn!(
+                status = %status,
+                error = %crate::logging::redact_secrets(&error_text),
+                "anthropic api returned error"
+            );
 
             // Provide more specific error messages based on status code
             let error_msg = match status.as_u16() {
@@ -95,6 +109,8 @@ impl AnthropicClient {
                                 else {
                                     return futures::future::ready(Some(None));
                                 };
+
+                                tracing::debug!(tool_id = %id, tool_name = %name, "anthropic tool_use start");
 
                                 state.pending_tool = Some(PendingToolUse {
                                     id,

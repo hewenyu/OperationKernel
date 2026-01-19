@@ -1,6 +1,7 @@
 mod config;
 mod event;
 mod llm;
+mod logging;
 mod tool;
 mod tui;
 
@@ -27,6 +28,12 @@ async fn main() -> Result<()> {
     // Load or create configuration
     let config = config::load_or_create_config()?;
 
+    // Initialize debug logging (writes to ~/.config/ok/ok-debug.log when enabled)
+    let _log_guard = logging::init(config.debug).unwrap_or_else(|e| {
+        eprintln!("Failed to initialize debug logging: {e}");
+        None
+    });
+
     // Get default station
     let station = config
         .stations
@@ -34,6 +41,13 @@ async fn main() -> Result<()> {
         .find(|s| s.id == config.default_station)
         .ok_or_else(|| anyhow::anyhow!("Default station '{}' not found", config.default_station))?
         .clone();
+
+    tracing::info!(
+        default_station = %config.default_station,
+        provider = ?station.provider,
+        model = %station.model,
+        "starting ok"
+    );
 
     // Create LLM client
     let llm_client = llm::anthropic::AnthropicClient::new(station);

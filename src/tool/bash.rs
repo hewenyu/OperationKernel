@@ -64,6 +64,14 @@ impl Tool for BashTool {
         let params: BashParams = serde_json::from_value(params)
             .map_err(|e| ToolError::InvalidParams(e.to_string()))?;
 
+        tracing::debug!(
+            working_dir = %ctx.working_dir.display(),
+            timeout_ms = params.timeout,
+            description = %params.description,
+            command = %crate::logging::redact_secrets(&params.command),
+            "tool bash start"
+        );
+
         // 1. Create command process
         let mut child = tokio::process::Command::new("sh")
             .arg("-c")
@@ -139,6 +147,13 @@ impl Tool for BashTool {
         };
 
         // 7. Return result
+        tracing::debug!(
+            exit_code = ?exit_code,
+            stdout_bytes = stdout.len(),
+            stderr_bytes = stderr.len(),
+            "tool bash done"
+        );
+
         Ok(ToolResult::new(title, final_output)
             .with_metadata("exit_code", json!(exit_code))
             .with_metadata("command", json!(params.command))

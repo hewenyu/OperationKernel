@@ -121,6 +121,14 @@ impl Tool for ReadTool {
         let params: ReadParams = serde_json::from_value(params)
             .map_err(|e| ToolError::InvalidParams(e.to_string()))?;
 
+        tracing::debug!(
+            working_dir = %ctx.working_dir.display(),
+            file_path = %params.file_path.display(),
+            offset = params.offset,
+            limit = params.limit,
+            "tool read start"
+        );
+
         // 1. Resolve file path (relative to working directory)
         let filepath = if params.file_path.is_absolute() {
             params.file_path
@@ -199,6 +207,14 @@ impl Tool for ReadTool {
         } else {
             final_output.push_str(&format!("(End of file - {} lines total)", total_lines));
         }
+
+        tracing::debug!(
+            resolved_path = %filepath.display(),
+            total_lines,
+            lines_read = output_lines.len(),
+            truncated = truncated_by_bytes || last_line < total_lines,
+            "tool read done"
+        );
 
         // 8. Return result
         Ok(ToolResult::new(

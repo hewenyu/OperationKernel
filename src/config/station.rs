@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 /// Main configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    /// Enable debug logging to file
+    #[serde(default)]
+    pub debug: bool,
+
     /// Default station to use
     #[serde(default = "default_station_id")]
     pub default_station: String,
@@ -15,6 +19,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            debug: false,
             default_station: "claude".to_string(),
             stations: vec![
                 Station {
