@@ -8,6 +8,54 @@ use ratatui::{
 };
 use textwrap::wrap;
 
+/// Cache for wrapped text to avoid recomputation
+#[derive(Clone)]
+struct MessageRenderCache {
+    /// The wrapped lines of text
+    wrapped_lines: Vec<String>,
+    /// The width at which the text was wrapped
+    last_width: usize,
+    /// Hash of the message content to detect changes
+    content_hash: u64,
+}
+
+impl MessageRenderCache {
+    fn new() -> Self {
+        Self {
+            wrapped_lines: Vec::new(),
+            last_width: 0,
+            content_hash: 0,
+        }
+    }
+
+    /// Check if the cache is still valid for the given width and content
+    fn is_valid(&self, width: usize, content: &str) -> bool {
+        if self.last_width != width {
+            return false;
+        }
+
+        // Simple hash using content length and first/last chars
+        let hash = Self::simple_hash(content);
+        self.content_hash == hash
+    }
+
+    /// Simple hash function for content
+    fn simple_hash(content: &str) -> u64 {
+        let bytes = content.as_bytes();
+        let len = bytes.len() as u64;
+        let first = bytes.first().copied().unwrap_or(0) as u64;
+        let last = bytes.last().copied().unwrap_or(0) as u64;
+        (len << 16) | (first << 8) | last
+    }
+
+    /// Update the cache with new wrapped lines
+    fn update(&mut self, wrapped_lines: Vec<String>, width: usize, content: &str) {
+        self.wrapped_lines = wrapped_lines;
+        self.last_width = width;
+        self.content_hash = Self::simple_hash(content);
+    }
+}
+
 /// Message list component with scrolling support
 pub struct MessageList {
     messages: Vec<ChatMessage>,
@@ -15,6 +63,8 @@ pub struct MessageList {
     viewport_height: u16,
     viewport_width: u16,
     auto_scroll: bool,
+    /// Cache for wrapped text (one per message)
+    render_cache: Vec<MessageRenderCache>,
 }
 
 impl MessageList {
@@ -25,12 +75,14 @@ impl MessageList {
             viewport_height: 0,
             viewport_width: 0,
             auto_scroll: true,
+            render_cache: Vec::new(),
         }
     }
 
     /// Add a new message to the list
     pub fn add_message(&mut self, message: ChatMessage) {
         self.messages.push(message);
+        self.render_cache.push(MessageRenderCache::new());
         if self.auto_scroll {
             self.auto_scroll_to_bottom();
         }
@@ -45,20 +97,43 @@ impl MessageList {
     }
 
     /// Calculate the height of a message when rendered
-    fn calculate_message_height(&self, message: &ChatMessage, width: u16) -> u16 {
+    fn calculate_message_height(&mut self, message_idx: usize, width: u16) -> u16 {
         let border_height = 2; // Top and bottom borders
         let role_header_lines = 1u16;
 
-        // Calculate wrapped lines
+        // Calculate wrapped lines using cache
         let content_width = width.saturating_sub(8); // Match render_message (borders + padding + indent)
-        let wrapped_lines = self.wrap_text(&message.content, content_width as usize);
+        let wrapped_lines = self.get_wrapped_text_cached(message_idx, content_width as usize);
 
         let content_lines = wrapped_lines.len().max(1) as u16;
 
         border_height + role_header_lines + content_lines
     }
 
-    /// Wrap text to fit within the given width
+    /// Get wrapped text using cache (optimized)
+    fn get_wrapped_text_cached(&mut self, message_idx: usize, max_width: usize) -> Vec<String> {
+        if message_idx >= self.messages.len() {
+            return vec![String::new()];
+        }
+
+        // Check cache validity first
+        let message_content = self.messages[message_idx].content.clone();
+        let cache_valid = self.render_cache[message_idx].is_valid(max_width, &message_content);
+
+        if cache_valid {
+            return self.render_cache[message_idx].wrapped_lines.clone();
+        }
+
+        // Cache miss - compute wrapped text
+        let wrapped = self.wrap_text(&message_content, max_width);
+
+        // Update cache
+        self.render_cache[message_idx].update(wrapped.clone(), max_width, &message_content);
+
+        wrapped
+    }
+
+    /// Wrap text to fit within the given width (uncached)
     fn wrap_text(&self, text: &str, max_width: usize) -> Vec<String> {
         if text.is_empty() {
             return vec![String::new()];
@@ -73,10 +148,10 @@ impl MessageList {
     }
 
     /// Calculate total height of all messages
-    fn calculate_total_height(&self, width: u16) -> u16 {
+    fn calculate_total_height(&mut self, width: u16) -> u16 {
         let mut total = 0;
-        for msg in &self.messages {
-            total += self.calculate_message_height(msg, width);
+        for i in 0..self.messages.len() {
+            total += self.calculate_message_height(i, width);
             total += 2; // Increased spacing between messages for better visual separation
         }
         total.saturating_sub(2) // Remove last spacing
@@ -98,14 +173,14 @@ impl MessageList {
 
         // Calculate positions for all messages
         let mut message_positions: Vec<(u16, u16)> = Vec::new();
-        for msg in &self.messages {
-            let height = self.calculate_message_height(msg, width);
+        for i in 0..self.messages.len() {
+            let height = self.calculate_message_height(i, width);
             message_positions.push((current_y, height));
             current_y += height + 2; // +2 for increased spacing between messages
         }
 
         // Render only visible messages
-        for (i, msg) in self.messages.iter().enumerate() {
+        for i in 0..self.messages.len() {
             let (pos, height) = message_positions[i];
 
             // Check if message is in visible range
@@ -121,7 +196,7 @@ impl MessageList {
                     height: height.min(area.height.saturating_sub(render_y)),
                 };
 
-                self.render_message(frame, msg, msg_area);
+                self.render_message(frame, i, msg_area);
             }
         }
 
@@ -133,7 +208,8 @@ impl MessageList {
     }
 
     /// Render a single message with border
-    fn render_message(&self, frame: &mut Frame, message: &ChatMessage, area: Rect) {
+    fn render_message(&mut self, frame: &mut Frame, message_idx: usize, area: Rect) {
+        let message = &self.messages[message_idx];
         let (border_color, border_type, role_text, role_emoji) = match message.role {
             MessageRole::User => (
                 Color::LightCyan,     // Bright cyan for better visibility
@@ -172,9 +248,16 @@ impl MessageList {
             message.content.clone()
         };
 
-        // Wrap content
+        // Wrap content using cache
         let content_width = area.width.saturating_sub(8) as usize; // Account for borders, padding, and indentation
-        let wrapped = self.wrap_text(&content, content_width);
+
+        // For streaming messages with changing content, use direct wrapping
+        // For complete messages, use cache
+        let wrapped = if !message.is_complete {
+            self.wrap_text(&content, content_width)
+        } else {
+            self.get_wrapped_text_cached(message_idx, content_width)
+        };
 
         // Create text with role header and indented content
         let mut lines = Vec::new();
@@ -250,7 +333,7 @@ impl MessageList {
 
     /// Check if currently at the bottom
     #[allow(dead_code)]
-    pub fn is_at_bottom(&self) -> bool {
+    pub fn is_at_bottom(&mut self) -> bool {
         let total_height = self.calculate_total_height(self.viewport_width.max(1));
         if total_height <= self.viewport_height {
             return true;

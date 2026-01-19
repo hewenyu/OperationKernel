@@ -3,7 +3,7 @@ use crate::llm::anthropic::AnthropicClient;
 use crate::llm::types::{ContentBlock, Message, StreamChunk, ToolUse};
 use crate::tool::base::ToolContext;
 use crate::tool::ToolRegistry;
-use crate::tui::{ChatMessage, InputWidget, MessageList};
+use crate::tui::{ChatMessage, ErrorDetails, InputWidget, MessageList};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -13,7 +13,11 @@ use ratatui::{
     Frame,
 };
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::mpsc;
+
+/// Spinner frames for loading animation
+const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 /// Main application state
 pub struct App {
@@ -41,6 +45,14 @@ pub struct App {
     streaming_assistant_text: String,
     /// Streaming assistant tool_use blocks (for API follow-up)
     streaming_assistant_tool_uses: Vec<ToolUse>,
+    /// Current spinner frame index for loading animation
+    spinner_frame: usize,
+    /// When streaming started (for showing elapsed time)
+    streaming_start_time: Option<Instant>,
+    /// Whether the UI needs to be re-rendered
+    needs_render: bool,
+    /// Last terminal size to detect resizes
+    last_terminal_size: (u16, u16),
 }
 
 impl App {
@@ -81,7 +93,53 @@ impl App {
             pending_tool_calls: Vec::new(),
             streaming_assistant_text: String::new(),
             streaming_assistant_tool_uses: Vec::new(),
+            spinner_frame: 0,
+            streaming_start_time: None,
+            needs_render: true,  // Start with initial render needed
+            last_terminal_size: (0, 0),  // Will be set on first render
         }
+    }
+
+    /// Check if the app needs to be rendered
+    pub fn needs_render(&self) -> bool {
+        self.needs_render
+    }
+
+    /// Mark that rendering has been completed
+    pub fn mark_rendered(&mut self) {
+        self.needs_render = false;
+    }
+
+    /// Mark that the UI needs to be re-rendered
+    fn mark_dirty(&mut self) {
+        self.needs_render = true;
+    }
+
+    /// Update terminal size and mark dirty if it changed
+    pub fn update_terminal_size(&mut self, width: u16, height: u16) {
+        let new_size = (width, height);
+        if new_size != self.last_terminal_size {
+            self.last_terminal_size = new_size;
+            self.mark_dirty();
+        }
+    }
+
+    /// Update spinner animation frame
+    pub fn tick_spinner(&mut self) {
+        if self.is_loading {
+            self.spinner_frame = (self.spinner_frame + 1) % SPINNER_FRAMES.len();
+            self.mark_dirty();  // Spinner animation needs render
+        }
+    }
+
+    /// Get current spinner character
+    fn get_spinner(&self) -> &'static str {
+        SPINNER_FRAMES[self.spinner_frame]
+    }
+
+    /// Get elapsed time since streaming started (in seconds)
+    fn get_elapsed_time(&self) -> Option<f64> {
+        self.streaming_start_time.map(|start| start.elapsed().as_secs_f64())
     }
 
     /// Check if the application should quit
@@ -107,6 +165,7 @@ impl App {
                     msg.append_content(&text);
                 }
                 self.streaming_assistant_text.push_str(&text);
+                self.mark_dirty();  // New content needs render
             }
             StreamChunk::ToolUse(tool_use) => {
                 // Display tool call in TUI
@@ -118,6 +177,7 @@ impl App {
                 // Store tool use for execution
                 self.streaming_assistant_tool_uses.push(tool_use.clone());
                 self.pending_tool_calls.push(tool_use);
+                self.mark_dirty();  // Tool use message needs render
             }
             StreamChunk::Done => {
                 // Mark message as complete and add to conversation
@@ -145,21 +205,26 @@ impl App {
                 } else {
                     self.is_loading = false;
                     self.stream_receiver = None;
+                    self.streaming_start_time = None;  // Clear start time
                 }
+                self.mark_dirty();  // State changed
             }
             StreamChunk::Error(err) => {
-                // Add error message
-                self.message_list.add_message(ChatMessage::error(
+                // Add enhanced error message
+                let error_details = ErrorDetails::from_message(err.clone());
+                self.message_list.add_message(ChatMessage::error_from_details(
                     self.current_message_id,
-                    err.clone(),
+                    error_details,
                 ));
                 self.current_message_id += 1;
 
                 self.is_loading = false;
                 self.stream_receiver = None;
+                self.streaming_start_time = None;  // Clear start time
                 self.pending_tool_calls.clear();
                 self.streaming_assistant_text.clear();
                 self.streaming_assistant_tool_uses.clear();
+                self.mark_dirty();  // Error message needs render
             }
         }
     }
@@ -184,9 +249,11 @@ impl App {
         match mouse.kind {
             MouseEventKind::ScrollUp => {
                 self.scroll_up(3);
+                self.mark_dirty();  // Scroll position changed
             }
             MouseEventKind::ScrollDown => {
                 self.scroll_down(3);
+                self.mark_dirty();  // Scroll position changed
             }
             _ => {}
         }
@@ -205,26 +272,32 @@ impl App {
         match key.code {
             KeyCode::Up => {
                 self.scroll_up(1);
+                self.mark_dirty();
                 return Ok(());
             }
             KeyCode::Down => {
                 self.scroll_down(1);
+                self.mark_dirty();
                 return Ok(());
             }
             KeyCode::PageUp => {
                 self.scroll_up(10);
+                self.mark_dirty();
                 return Ok(());
             }
             KeyCode::PageDown => {
                 self.scroll_down(10);
+                self.mark_dirty();
                 return Ok(());
             }
             KeyCode::Home => {
                 self.scroll_to_top();
+                self.mark_dirty();
                 return Ok(());
             }
             KeyCode::End => {
                 self.scroll_to_bottom();
+                self.mark_dirty();
                 return Ok(());
             }
             _ => {}
@@ -234,12 +307,14 @@ impl App {
         if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::SHIFT) {
             if !self.is_loading {
                 self.submit_message();
+                self.mark_dirty();  // New messages added
             }
             return Ok(());
         }
 
         // Forward other keys to the input widget (including Shift+Enter)
         self.input.handle_key(key);
+        self.mark_dirty();  // Input changed
         Ok(())
     }
 
@@ -284,6 +359,7 @@ impl App {
         self.stream_receiver = Some(rx);
 
         // Create streaming assistant message for the response
+        self.streaming_start_time = Some(Instant::now());  // Restart timing for tool response
         let assistant_msg = ChatMessage::assistant_streaming(self.current_message_id);
         self.message_list.add_message(assistant_msg);
         self.current_message_id += 1;
@@ -377,6 +453,7 @@ impl App {
 
         // Start loading and create streaming assistant message
         self.is_loading = true;
+        self.streaming_start_time = Some(Instant::now());  // Start timing
         let assistant_msg = ChatMessage::assistant_streaming(self.current_message_id);
         self.message_list.add_message(assistant_msg);
         self.current_message_id += 1;
@@ -452,22 +529,37 @@ impl App {
     /// Render status bar
     fn render_status(&self, frame: &mut Frame, area: Rect) {
         use ratatui::widgets::BorderType;
-        
-        let status_text = vec![Line::from(vec![
+
+        let mut status_spans = vec![
             Span::styled(
-                if self.is_loading { "⚡ " } else { "✓ " },
+                if self.is_loading {
+                    format!("{} ", self.get_spinner())
+                } else {
+                    "✓ ".to_string()
+                },
                 Style::default().fg(if self.is_loading { Color::Yellow } else { Color::Green })
             ),
             Span::styled("Status: ", Style::default().fg(Color::LightYellow)),
-            Span::raw(if self.is_loading {
-                "Generating..."
+        ];
+
+        // Add status text with elapsed time if loading
+        if self.is_loading {
+            if let Some(elapsed) = self.get_elapsed_time() {
+                status_spans.push(Span::raw(format!("Generating... {:.1}s", elapsed)));
             } else {
-                "Ready"
-            }),
+                status_spans.push(Span::raw("Generating..."));
+            }
+        } else {
+            status_spans.push(Span::raw("Ready"));
+        }
+
+        status_spans.extend_from_slice(&[
             Span::raw(" │ "),  // Visual separator
             Span::styled("Messages: ", Style::default().fg(Color::LightCyan)),
             Span::raw(self.message_list.len().to_string()),
-        ])];
+        ]);
+
+        let status_text = vec![Line::from(status_spans)];
 
         let status = Paragraph::new(status_text).block(
             Block::default()

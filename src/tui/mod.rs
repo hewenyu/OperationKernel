@@ -5,5 +5,5 @@ pub mod message_list;
 
 pub use app::App;
 pub use input::InputWidget;
-pub use message::ChatMessage;
+pub use message::{ChatMessage, ErrorDetails, ErrorType};
 pub use message_list::MessageList;

@@ -92,8 +92,15 @@ async fn run_app(
     let mut tick_interval = interval(Duration::from_millis(16));
 
     loop {
-        // Render the UI
-        terminal.draw(|frame| app.render(frame))?;
+        // Only render if needed (event-driven rendering for performance)
+        if app.needs_render() {
+            terminal.draw(|frame| {
+                let size = frame.area();
+                app.update_terminal_size(size.width, size.height);
+                app.render(frame);
+            })?;
+            app.mark_rendered();
+        }
 
         // Handle events
         tokio::select! {
@@ -103,7 +110,10 @@ async fn run_app(
                     let app_event = match evt {
                         CrosstermEvent::Key(key) => Event::Key(key),
                         CrosstermEvent::Mouse(mouse) => Event::Mouse(mouse),
-                        CrosstermEvent::Resize(w, h) => Event::Resize(w, h),
+                        CrosstermEvent::Resize(w, h) => {
+                            app.update_terminal_size(w, h);
+                            Event::Resize(w, h)
+                        },
                         _ => continue,
                     };
                     app.handle_event(app_event)?;
@@ -112,6 +122,9 @@ async fn run_app(
 
             // Handle tick events
             _ = tick_interval.tick() => {
+                // Update spinner animation
+                app.tick_spinner();
+
                 // Poll for streaming chunks
                 while let Some(chunk) = app.poll_stream() {
                     app.handle_stream_chunk(chunk);

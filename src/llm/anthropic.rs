@@ -55,7 +55,7 @@ impl AnthropicClient {
             .json(&request_body)
             .send()
             .await
-            .context("Failed to send request to Anthropic API")?;
+            .context("Network error: Failed to send request to Anthropic API. Check your internet connection.")?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -63,7 +63,17 @@ impl AnthropicClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-            anyhow::bail!("API request failed ({}): {}", status, error_text);
+
+            // Provide more specific error messages based on status code
+            let error_msg = match status.as_u16() {
+                401 => format!("Unauthorized (401): Invalid or missing API key. Please check your API key in ~/.config/ok/config.toml\n\nDetails: {}", error_text),
+                429 => format!("Rate Limit Exceeded (429): You've made too many requests. Please wait a moment and try again.\n\nDetails: {}", error_text),
+                400 => format!("Bad Request (400): The request was invalid. Please check your input.\n\nDetails: {}", error_text),
+                500..=599 => format!("Server Error ({}): The Anthropic API is experiencing issues. Please try again later.\n\nDetails: {}", status, error_text),
+                _ => format!("API request failed ({}): {}", status, error_text),
+            };
+
+            anyhow::bail!(error_msg);
         }
 
         let stream = response
