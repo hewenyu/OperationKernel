@@ -130,8 +130,9 @@ impl Tool for EditTool {
         let content = tokio::fs::read_to_string(&filepath)
             .await
             .map_err(|e| {
-                // Check if it's a binary file error
-                if e.to_string().contains("invalid utf-8") {
+                // Check if it's a binary file error (UTF-8 validation failure)
+                let err_str = e.to_string().to_lowercase();
+                if err_str.contains("utf-8") || err_str.contains("utf8") {
                     ToolError::BinaryFile(filepath.clone())
                 } else {
                     ToolError::Other(e.into())

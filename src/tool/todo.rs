@@ -20,8 +20,12 @@ impl TodoWriteTool {
         Self { storage_path }
     }
 
-    /// Create a TodoWrite tool with custom storage path (for testing)
-    #[cfg(test)]
+    /// Create a TodoWrite tool with custom storage path
+    ///
+    /// # Note
+    /// This is primarily intended for testing purposes to control where
+    /// todo files are stored. Production code should use `new()` which
+    /// uses the standard config directory.
     pub fn with_storage_path(storage_path: PathBuf) -> Self {
         Self { storage_path }
     }
