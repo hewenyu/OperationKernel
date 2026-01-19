@@ -1,7 +1,7 @@
 //! Integration tests for the web_fetch tool
 //!
-//! Note: Some tests require internet connectivity and may be flaky in offline environments.
-//! Tests marked with #[ignore] require network access.
+//! Note: These tests require internet connectivity.
+//! If your environment is offline or blocks outbound HTTP(S), these tests are expected to fail.
 
 mod common;
 
@@ -28,35 +28,25 @@ async fn test_web_fetch_http_upgrade() {
     let ctx = create_test_context(fixture.path());
 
     // Try to fetch with http:// - should upgrade to https://
-    // Using example.com which should work reliably
     let params = json!({
         "url": "http://example.com",
         "prompt": "Get the page title"
     });
 
     let result = tool.execute(params, &ctx).await;
-
-    // If it fails due to network, that's okay; we mainly want to ensure the tool
-    // doesn't reject HTTP URLs at validation time.
-    match result {
-        Ok(output) => {
-            let url_value = output
-                .metadata
-                .get("url")
-                .or_else(|| output.metadata.get("original_url"))
-                .expect("expected url metadata on success");
-            let url = url_value.as_str().expect("expected url metadata as string");
-            assert!(url.starts_with("https://"));
-        }
-        Err(ToolError::Other(_)) => {
-            // Expected in offline environments.
-        }
-        Err(e) => panic!("unexpected error (expected network or success): {e}"),
-    }
+    let output = result.expect("network required: expected fetch to succeed");
+    let url = output
+        .metadata
+        .get("url")
+        .and_then(|v| v.as_str())
+        .expect("expected url metadata on success");
+    assert!(
+        url.starts_with("https://"),
+        "expected upgraded https url, got: {url}"
+    );
 }
 
 #[tokio::test]
-#[ignore] // Requires network access
 async fn test_web_fetch_valid_url() {
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
@@ -78,7 +68,6 @@ async fn test_web_fetch_valid_url() {
 }
 
 #[tokio::test]
-#[ignore] // Requires network access
 async fn test_web_fetch_html_to_markdown() {
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
@@ -113,21 +102,12 @@ async fn test_web_fetch_prompt_included() {
     });
 
     let result = tool.execute(params, &ctx).await;
-
-    match result {
-        Ok(output) => {
-            assert!(output.output.contains(test_prompt));
-            assert!(output.output.contains("Prompt:"));
-        }
-        Err(ToolError::Other(_)) => {
-            // Expected in offline environments.
-        }
-        Err(e) => panic!("unexpected error (expected network or success): {e}"),
-    }
+    let output = result.expect("network required: expected fetch to succeed");
+    assert!(output.output.contains(test_prompt));
+    assert!(output.output.contains("Prompt:"));
 }
 
 #[tokio::test]
-#[ignore] // Requires network access
 async fn test_web_fetch_metadata() {
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
@@ -153,7 +133,6 @@ async fn test_web_fetch_metadata() {
 }
 
 #[tokio::test]
-#[ignore] // Requires network access
 async fn test_web_fetch_cache_hit() {
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
@@ -186,7 +165,6 @@ async fn test_web_fetch_cache_hit() {
 }
 
 #[tokio::test]
-#[ignore] // Requires network access
 async fn test_web_fetch_cache_miss_after_first() {
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
@@ -253,7 +231,6 @@ async fn test_web_fetch_network_error() {
 }
 
 #[tokio::test]
-#[ignore] // Requires network access and specific redirect setup
 async fn test_web_fetch_redirect_same_host() {
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
@@ -271,7 +248,6 @@ async fn test_web_fetch_redirect_same_host() {
 }
 
 #[tokio::test]
-#[ignore] // Requires network access and cross-domain redirect
 async fn test_web_fetch_redirect_different_host() {
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
@@ -292,7 +268,6 @@ async fn test_web_fetch_redirect_different_host() {
 }
 
 #[tokio::test]
-#[ignore] // Requires network access
 async fn test_web_fetch_large_page() {
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
@@ -313,7 +288,6 @@ async fn test_web_fetch_large_page() {
 }
 
 #[tokio::test]
-#[ignore] // Requires network access
 async fn test_web_fetch_empty_response() {
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
@@ -334,7 +308,6 @@ async fn test_web_fetch_empty_response() {
 }
 
 #[tokio::test]
-#[ignore] // Requires network access
 async fn test_web_fetch_concurrent_requests() {
     let fixture = TestFixture::new();
     let ctx = create_test_context(fixture.path());
@@ -368,15 +341,18 @@ async fn test_web_fetch_concurrent_requests() {
     // Wait for all to complete
     let results = futures::future::join_all(handles).await;
 
-    // At least some should succeed (depending on network)
+    // With network access, all should succeed.
     let successes = results
         .into_iter()
-        .filter(|r| r.is_ok() && r.as_ref().unwrap().is_ok())
+        .map(|join_result| join_result.expect("task join failed"))
+        .filter(|tool_result| tool_result.is_ok())
         .count();
 
-    // If we have network, at least one should succeed
-    // If no network, all will fail - that's okay for this test
-    assert!(successes == 0 || successes >= 1);
+    assert_eq!(
+        successes,
+        3,
+        "expected all concurrent fetches to succeed with network access"
+    );
 }
 
 #[tokio::test]
