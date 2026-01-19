@@ -78,14 +78,12 @@ impl GrepTool {
                     context.push(ContextLine {
                         line_number: line_num,
                         content: line_text,
-                        is_match: i == line_idx,
                         prefix: prefix.to_string(),
                     });
                 }
 
                 matches.push(Match {
                     file_path: file_path.to_path_buf(),
-                    line_number: line_idx + 1,
                     context,
                 });
             }
@@ -127,7 +125,6 @@ fn default_max_results() -> usize {
 #[derive(Debug)]
 struct Match {
     file_path: PathBuf,
-    line_number: usize,
     context: Vec<ContextLine>,
 }
 
@@ -135,7 +132,6 @@ struct Match {
 struct ContextLine {
     line_number: usize,
     content: String,
-    is_match: bool,
     prefix: String,
 }
 

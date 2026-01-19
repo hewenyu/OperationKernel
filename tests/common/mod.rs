@@ -1,4 +1,5 @@
 //! Common test utilities and fixtures for tool testing
+#![allow(dead_code)]
 
 use std::path::PathBuf;
 use std::process::Command;

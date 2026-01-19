@@ -22,7 +22,6 @@ pub struct BackgroundShell {
     stderr_lines: Arc<Mutex<VecDeque<String>>>,
     status: Arc<Mutex<ShellStatus>>,
     started_at: SystemTime,
-    max_buffer_lines: usize,
 }
 
 impl BackgroundShell {
@@ -95,7 +94,6 @@ impl BackgroundShell {
             stderr_lines,
             status,
             started_at: SystemTime::now(),
-            max_buffer_lines: max_lines,
         })
     }
 

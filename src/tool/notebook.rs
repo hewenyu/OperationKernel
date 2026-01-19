@@ -55,13 +55,6 @@ enum SourceLines {
 }
 
 impl SourceLines {
-    fn to_string(&self) -> String {
-        match self {
-            SourceLines::Single(s) => s.clone(),
-            SourceLines::Multiple(lines) => lines.join(""),
-        }
-    }
-
     fn from_string(s: String) -> Self {
         // Split into lines preserving newlines
         let lines: Vec<String> = s.split_inclusive('\n').map(|s| s.to_string()).collect();

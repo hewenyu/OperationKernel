@@ -44,14 +44,6 @@ impl EditTool {
             .map(|(pos, _)| pos)
             .collect()
     }
-
-    /// Calculate line and column for a byte position
-    fn position_to_line_col(content: &str, pos: usize) -> (usize, usize) {
-        let before = &content[..pos];
-        let line = before.lines().count();
-        let col = before.lines().last().map(|l| l.len()).unwrap_or(0);
-        (line, col)
-    }
 }
 
 #[async_trait::async_trait]
