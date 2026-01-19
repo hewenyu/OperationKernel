@@ -57,6 +57,16 @@ pub enum ToolError {
     #[error("Invalid parameters: {0}")]
     InvalidParams(String),
 
+    // Edit tool specific errors
+    #[error("String not found in file: {0}")]
+    OldStringNotFound(String),
+
+    #[error("Multiple matches found ({count} occurrences at positions {positions:?}). Use replace_all=true or provide more context to make the match unique.")]
+    MultipleMatches { count: usize, positions: Vec<usize> },
+
+    #[error("old_string and new_string must be different")]
+    OldNewIdentical,
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
