@@ -50,9 +50,13 @@ fn test_all_tools_registered() {
     assert!(registry.get("enter_plan_mode").is_some(), "EnterPlanMode tool should be registered");
     assert!(registry.get("exit_plan_mode").is_some(), "ExitPlanMode tool should be registered");
 
-    // Total count should be 14
+    // Phase 5 advanced tools
+    assert!(registry.get("web_search").is_some(), "WebSearch tool should be registered");
+    // Note: TaskTool is registered dynamically in AgentRunner, not in ToolRegistry::new()
+
+    // Total count should be 15
     let definitions = registry.list_tool_definitions();
-    assert_eq!(definitions.len(), 14, "Should have exactly 14 tools registered");
+    assert_eq!(definitions.len(), 15, "Should have exactly 15 tools registered");
 }
 
 #[test]

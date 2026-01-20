@@ -9,6 +9,7 @@ pub mod event;
 pub mod llm;
 pub mod logging;
 pub mod process;
+pub mod search;
 pub mod subagent;
 pub mod tool;
 pub mod tui;

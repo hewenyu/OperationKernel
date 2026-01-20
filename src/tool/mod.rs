@@ -11,6 +11,8 @@ pub mod edit;
 pub mod todo;
 pub mod notebook;
 pub mod web_fetch;
+pub mod web_search;
+pub mod task;
 pub mod ask_user_question;
 pub mod enter_plan_mode;
 pub mod exit_plan_mode;
@@ -56,6 +58,10 @@ impl ToolRegistry {
         tools.insert("enter_plan_mode".to_string(), Arc::new(enter_plan_mode::EnterPlanModeTool));
         tools.insert("exit_plan_mode".to_string(), Arc::new(exit_plan_mode::ExitPlanModeTool));
 
+        // Register advanced tools (Phase 5)
+        tools.insert("web_search".to_string(), Arc::new(web_search::WebSearchTool::new()));
+        // Note: TaskTool will be added dynamically in AgentRunner::new() since it needs LLM client
+
         Self { tools }
     }
 
@@ -81,6 +87,20 @@ impl ToolRegistry {
     /// Get all tool names
     pub fn list_names(&self) -> Vec<String> {
         self.tools.keys().cloned().collect()
+    }
+
+    /// Create a tool registry from an existing HashMap of tools
+    ///
+    /// This is used for creating filtered registries for subagents
+    pub fn from_map(tools: HashMap<String, Arc<dyn Tool>>) -> Self {
+        Self { tools }
+    }
+
+    /// Dynamically insert a tool into the registry
+    ///
+    /// This is used for adding tools that require runtime dependencies (e.g., TaskTool needs LLM client)
+    pub fn insert_tool(&mut self, name: String, tool: Arc<dyn Tool>) {
+        self.tools.insert(name, tool);
     }
 }
 

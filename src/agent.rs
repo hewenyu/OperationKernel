@@ -82,9 +82,18 @@ impl AgentRunner {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let working_dir = cwd.canonicalize().unwrap_or(cwd);
 
+        // Create tool registry and add TaskTool dynamically (it needs LLM client)
+        let mut registry = ToolRegistry::new();
+        registry.insert_tool(
+            "task".to_string(),
+            Arc::new(crate::tool::task::TaskTool::new(Arc::new(
+                llm_client.clone(),
+            ))),
+        );
+
         Self {
             llm_client,
-            tool_registry: Arc::new(ToolRegistry::new()),
+            tool_registry: Arc::new(registry),
             shell_manager: Arc::new(BackgroundShellManager::new()),
             working_dir,
             session_id: "session_1".to_string(),
