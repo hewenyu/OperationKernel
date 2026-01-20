@@ -3,7 +3,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Paragraph, Wrap},
+    widgets::{Clear, Paragraph, Wrap},
     Frame,
 };
 use textwrap::wrap;
@@ -201,6 +201,10 @@ impl MessageList {
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         self.viewport_height = area.height;
         self.viewport_width = area.width;
+
+        // We render only visible messages; clear the viewport first to prevent stale cells
+        // from previous frames causing "overlap" artifacts while scrolling.
+        frame.render_widget(Clear, area);
 
         if self.messages.is_empty() {
             return;
