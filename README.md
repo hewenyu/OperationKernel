@@ -109,6 +109,16 @@ cargo build
 cargo run
 ```
 
+### Tests
+
+部分集成测试是“真实联网测试”，通过 `OperationKernel/tests/config.toml` 配置（例如 `web_fetch` / `web_search`）。
+
+```bash
+cp OperationKernel/tests/config.example.toml OperationKernel/tests/config.toml
+```
+
+然后按需把 `web_fetch.enabled` / `web_search.enabled` 设为 `true`，并填入真实的 `web_search.brave_api_key`。
+
 ### Working Directory (Tools)
 
 - All tools treat the process `PWD` as the project root (`working_dir`), and tool outputs will echo it back.

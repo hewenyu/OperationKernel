@@ -1,7 +1,7 @@
 //! Integration tests for the web_fetch tool
 //!
-//! Note: These tests require internet connectivity.
-//! If your environment is offline or blocks outbound HTTP(S), these tests are expected to fail.
+//! Note: These tests are real network tests and are configured via `tests/config.toml`.
+//! If your environment is offline or blocks outbound HTTP(S), set `web_fetch.enabled = false`.
 
 mod common;
 
@@ -23,18 +23,23 @@ fn create_test_context(working_dir: std::path::PathBuf) -> ToolContext {
 
 #[tokio::test]
 async fn test_web_fetch_http_upgrade() {
+    let cfg = common::test_config();
+    if !cfg.web_fetch.enabled {
+        return;
+    }
+
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
     let ctx = create_test_context(fixture.path());
 
     // Try to fetch with http:// - should upgrade to https://
     let params = json!({
-        "url": "http://example.com",
+        "url": cfg.web_fetch.http_url.as_str(),
         "prompt": "Get the page title"
     });
 
     let result = tool.execute(params, &ctx).await;
-    let output = result.expect("network required: expected fetch to succeed");
+    let output = result.expect("expected fetch to succeed when web_fetch.enabled=true");
     let url = output
         .metadata
         .get("url")
@@ -48,13 +53,18 @@ async fn test_web_fetch_http_upgrade() {
 
 #[tokio::test]
 async fn test_web_fetch_valid_url() {
+    let cfg = common::test_config();
+    if !cfg.web_fetch.enabled {
+        return;
+    }
+
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
     let ctx = create_test_context(fixture.path());
 
     // Use a stable, reliable endpoint
     let params = json!({
-        "url": "https://example.com",
+        "url": cfg.web_fetch.https_url.as_str(),
         "prompt": "Get the main heading"
     });
 
@@ -69,12 +79,17 @@ async fn test_web_fetch_valid_url() {
 
 #[tokio::test]
 async fn test_web_fetch_html_to_markdown() {
+    let cfg = common::test_config();
+    if !cfg.web_fetch.enabled {
+        return;
+    }
+
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
     let ctx = create_test_context(fixture.path());
 
     let params = json!({
-        "url": "https://example.com",
+        "url": cfg.web_fetch.https_url.as_str(),
         "prompt": "Extract text content"
     });
 
@@ -90,6 +105,11 @@ async fn test_web_fetch_html_to_markdown() {
 
 #[tokio::test]
 async fn test_web_fetch_prompt_included() {
+    let cfg = common::test_config();
+    if !cfg.web_fetch.enabled {
+        return;
+    }
+
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
     let ctx = create_test_context(fixture.path());
@@ -97,24 +117,29 @@ async fn test_web_fetch_prompt_included() {
     let test_prompt = "Find all headings and summarize";
 
     let params = json!({
-        "url": "https://example.com",
+        "url": cfg.web_fetch.https_url.as_str(),
         "prompt": test_prompt
     });
 
     let result = tool.execute(params, &ctx).await;
-    let output = result.expect("network required: expected fetch to succeed");
+    let output = result.expect("expected fetch to succeed when web_fetch.enabled=true");
     assert!(output.output.contains(test_prompt));
     assert!(output.output.contains("Prompt:"));
 }
 
 #[tokio::test]
 async fn test_web_fetch_metadata() {
+    let cfg = common::test_config();
+    if !cfg.web_fetch.enabled {
+        return;
+    }
+
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
     let ctx = create_test_context(fixture.path());
 
     let params = json!({
-        "url": "https://example.com",
+        "url": cfg.web_fetch.https_url.as_str(),
         "prompt": "test"
     });
 
@@ -134,12 +159,17 @@ async fn test_web_fetch_metadata() {
 
 #[tokio::test]
 async fn test_web_fetch_cache_hit() {
+    let cfg = common::test_config();
+    if !cfg.web_fetch.enabled {
+        return;
+    }
+
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
     let ctx = create_test_context(fixture.path());
 
     let params = json!({
-        "url": "https://example.com",
+        "url": cfg.web_fetch.https_url.as_str(),
         "prompt": "test"
     });
 
@@ -166,13 +196,18 @@ async fn test_web_fetch_cache_hit() {
 
 #[tokio::test]
 async fn test_web_fetch_cache_miss_after_first() {
+    let cfg = common::test_config();
+    if !cfg.web_fetch.enabled {
+        return;
+    }
+
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
     let ctx = create_test_context(fixture.path());
 
     // First URL
     let params1 = json!({
-        "url": "https://example.com",
+        "url": cfg.web_fetch.https_url.as_str(),
         "prompt": "test"
     });
 
@@ -182,7 +217,7 @@ async fn test_web_fetch_cache_miss_after_first() {
 
     // Different URL (should not be cached)
     let params2 = json!({
-        "url": "https://www.example.org",
+        "url": cfg.web_fetch.cache_miss_url.as_str(),
         "prompt": "test"
     });
 
@@ -209,13 +244,17 @@ async fn test_web_fetch_invalid_url() {
 
 #[tokio::test]
 async fn test_web_fetch_network_error() {
+    let cfg = common::test_config();
+    if !cfg.web_fetch.enabled {
+        return;
+    }
+
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
     let ctx = create_test_context(fixture.path());
 
-    // Use a domain that definitely doesn't exist
     let params = json!({
-        "url": "https://this-domain-definitely-does-not-exist-12345.invalid",
+        "url": cfg.web_fetch.invalid_domain_url.as_str(),
         "prompt": "test"
     });
 
@@ -232,13 +271,17 @@ async fn test_web_fetch_network_error() {
 
 #[tokio::test]
 async fn test_web_fetch_redirect_same_host() {
+    let cfg = common::test_config();
+    if !cfg.web_fetch.enabled {
+        return;
+    }
+
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
     let ctx = create_test_context(fixture.path());
 
-    // httpbin.org has redirect endpoints
     let params = json!({
-        "url": "https://httpbin.org/redirect-to?url=https://httpbin.org/html",
+        "url": cfg.web_fetch.redirect_same_host_url.as_str(),
         "prompt": "test"
     });
 
@@ -249,13 +292,17 @@ async fn test_web_fetch_redirect_same_host() {
 
 #[tokio::test]
 async fn test_web_fetch_redirect_different_host() {
+    let cfg = common::test_config();
+    if !cfg.web_fetch.enabled {
+        return;
+    }
+
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
     let ctx = create_test_context(fixture.path());
 
-    // Use httpbin.org redirect to example.com (different host)
     let params = json!({
-        "url": "https://httpbin.org/redirect-to?url=https://example.com",
+        "url": cfg.web_fetch.redirect_different_host_url.as_str(),
         "prompt": "test"
     });
 
@@ -269,13 +316,17 @@ async fn test_web_fetch_redirect_different_host() {
 
 #[tokio::test]
 async fn test_web_fetch_large_page() {
+    let cfg = common::test_config();
+    if !cfg.web_fetch.enabled {
+        return;
+    }
+
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
     let ctx = create_test_context(fixture.path());
 
-    // httpbin.org can return HTML of various sizes
     let params = json!({
-        "url": "https://httpbin.org/html",
+        "url": cfg.web_fetch.large_page_url.as_str(),
         "prompt": "Extract the content"
     });
 
@@ -289,13 +340,17 @@ async fn test_web_fetch_large_page() {
 
 #[tokio::test]
 async fn test_web_fetch_empty_response() {
+    let cfg = common::test_config();
+    if !cfg.web_fetch.enabled {
+        return;
+    }
+
     let fixture = TestFixture::new();
     let tool = WebFetchTool::new();
     let ctx = create_test_context(fixture.path());
 
-    // Use an endpoint that returns minimal/empty HTML
     let params = json!({
-        "url": "https://httpbin.org/robots.txt",
+        "url": cfg.web_fetch.text_page_url.as_str(),
         "prompt": "Get robots.txt content"
     });
 
@@ -309,15 +364,20 @@ async fn test_web_fetch_empty_response() {
 
 #[tokio::test]
 async fn test_web_fetch_concurrent_requests() {
+    let cfg = common::test_config();
+    if !cfg.web_fetch.enabled {
+        return;
+    }
+
     let fixture = TestFixture::new();
     let ctx = create_test_context(fixture.path());
 
     // Spawn multiple concurrent fetches
-    let urls = vec![
-        "https://example.com",
-        "https://example.org",
-        "https://example.net",
-    ];
+    let urls = cfg.web_fetch.concurrent_urls.clone();
+    assert!(
+        !urls.is_empty(),
+        "web_fetch.concurrent_urls must not be empty when enabled"
+    );
 
     let mut handles = vec![];
 
@@ -350,7 +410,7 @@ async fn test_web_fetch_concurrent_requests() {
 
     assert_eq!(
         successes,
-        3,
+        cfg.web_fetch.concurrent_urls.len(),
         "expected all concurrent fetches to succeed with network access"
     );
 }

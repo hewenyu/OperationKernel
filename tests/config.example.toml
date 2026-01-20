@@ -1,0 +1,46 @@
+# Copy this file to `tests/config.toml` and fill in real values.
+#
+# These settings drive *real* (non-mocked) integration tests that talk to the internet.
+# Keep `tests/config.toml` out of git (it's ignored) because it can contain secrets.
+
+[web_fetch]
+# Set true to run real web_fetch network tests.
+enabled = false
+
+# Basic stable endpoints (override if your environment blocks them).
+http_url = "http://example.com"
+https_url = "https://example.com"
+cache_miss_url = "https://www.example.org"
+
+# A URL that should fail to resolve/connect to simulate network error.
+invalid_domain_url = "https://this-domain-definitely-does-not-exist-12345.invalid"
+
+# Redirect tests (httpbin is convenient, but you can replace with your own redirect endpoints).
+redirect_same_host_url = "https://httpbin.org/redirect-to?url=https://httpbin.org/html"
+redirect_different_host_url = "https://httpbin.org/redirect-to?url=https://example.com"
+
+# Content-size / text endpoints
+large_page_url = "https://httpbin.org/html"
+text_page_url = "https://httpbin.org/robots.txt"
+
+# Concurrency test URLs (must all be reachable when enabled)
+concurrent_urls = ["https://example.com", "https://example.org", "https://example.net"]
+
+[web_search]
+# Set true to run real web_search network tests (Brave Search API).
+enabled = false
+
+# Only "brave" is supported currently.
+provider = "brave"
+
+# Real API key (keep in `tests/config.toml`, not committed).
+brave_api_key = ""
+
+# Choose a query that is stable and likely to return results matching allowed_domains.
+query = "site:example.com example domain"
+allowed_domains = ["example.com"]
+blocked_domains = []
+
+# The test will assert at least this many results.
+min_results = 1
+
