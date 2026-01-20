@@ -107,11 +107,7 @@ impl Tool for EditTool {
         }
 
         // 2. Resolve file path (relative to working directory)
-        let filepath = if params.file_path.is_absolute() {
-            params.file_path
-        } else {
-            ctx.working_dir.join(&params.file_path)
-        };
+        let filepath = ctx.resolve_path(&params.file_path)?;
 
         // 3. Check file exists
         if !filepath.exists() {

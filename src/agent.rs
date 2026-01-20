@@ -79,11 +79,14 @@ pub struct AgentRunner {
 
 impl AgentRunner {
     pub fn new(llm_client: AnthropicClient) -> Self {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let working_dir = cwd.canonicalize().unwrap_or(cwd);
+
         Self {
             llm_client,
             tool_registry: Arc::new(ToolRegistry::new()),
             shell_manager: Arc::new(BackgroundShellManager::new()),
-            working_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            working_dir,
             session_id: "session_1".to_string(),
             agent_name: "ok".to_string(),
             conversation: Arc::new(Mutex::new(Vec::new())),
@@ -235,8 +238,10 @@ impl AgentRunner {
                     let (result_content, is_error) = match result {
                         Ok(tool_result) => {
                             let formatted = format!(
-                                "Tool: {}\nOutput:\n{}",
-                                tool_result.title, tool_result.output
+                                "Tool: {}\nWorking directory: {}\nOutput:\n{}",
+                                tool_result.title,
+                                working_dir.display(),
+                                tool_result.output
                             );
                             (formatted, false)
                         }

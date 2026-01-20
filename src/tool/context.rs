@@ -24,11 +24,14 @@ impl ToolContext {
 
     /// Create a default context with current working directory
     pub fn default_with_cwd() -> std::io::Result<Self> {
+        let cwd = std::env::current_dir()?;
+        let working_dir = cwd.canonicalize().unwrap_or(cwd);
+
         Ok(Self {
             session_id: "default".to_string(),
             message_id: "default".to_string(),
             agent: "default".to_string(),
-            working_dir: std::env::current_dir()?,
+            working_dir,
             shell_manager: Arc::new(BackgroundShellManager::new()),
         })
     }

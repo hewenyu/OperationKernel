@@ -220,11 +220,7 @@ impl Tool for GrepTool {
             .map_err(|e| ToolError::InvalidParams(format!("Invalid regex: {}", e)))?;
 
         // 2. Resolve search path
-        let search_path = if params.path.is_absolute() {
-            params.path.clone()
-        } else {
-            ctx.working_dir.join(&params.path)
-        };
+        let search_path = ctx.resolve_path(&params.path)?;
 
         if !search_path.exists() {
             return Err(ToolError::FileNotFound(search_path));

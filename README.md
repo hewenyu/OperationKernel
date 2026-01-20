@@ -109,6 +109,12 @@ cargo build
 cargo run
 ```
 
+### Working Directory (Tools)
+
+- All tools treat the process `PWD` as the project root (`working_dir`), and tool outputs will echo it back.
+- File tools (`read`/`write`/`edit`/`glob`/`grep`/`notebook_edit`) only allow paths **inside** `working_dir` (prevents “searching random folders” by mistake).
+- Prefer `glob`/`grep` with relative paths (e.g. `.` / `src/**`) instead of `find /...`.
+
 **Usage:**
 1. Type your message (use `Shift+Enter` for multi-line)
 2. Press `Enter` to submit

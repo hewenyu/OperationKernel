@@ -236,14 +236,61 @@ impl Tool for BashTool {
 
 /// Validate command for common issues that may cause timeouts or unintended behavior
 fn validate_command(command: &str, working_dir: &std::path::Path) -> Result<(), ToolError> {
-    // Check for filesystem-wide searches that ignore working_dir
-    if command.contains("find /") {
-        return Err(ToolError::InvalidParams(format!(
-            "Command attempts to search from root directory '/', which may take a very long time.\n\
-             Suggestion: Use 'find .' or 'find \"$PWD\"' to search from the current directory.\n\
-             Current working directory: {}",
-            working_dir.display()
-        )));
+    fn strip_wrapping_quotes(s: &str) -> &str {
+        let s = s.trim();
+        if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
+            &s[1..s.len().saturating_sub(1)]
+        } else {
+            s
+        }
+    }
+
+    // Check for filesystem-wide searches that ignore working_dir.
+    // This is a guardrail: tools should default to searching under working_dir unless explicitly requested.
+    let mut remaining = command;
+    while let Some(idx) = remaining.find("find ") {
+        remaining = &remaining[idx + "find ".len()..];
+        let after = remaining.trim_start();
+        let first = after
+            .split_whitespace()
+            .next()
+            .unwrap_or("");
+
+        // `find` default path is `.` if the first arg starts with '-' (e.g., `find -name ...`).
+        if first.is_empty() || first.starts_with('-') {
+            continue;
+        }
+
+        let first = strip_wrapping_quotes(first);
+
+        // Common safe cases.
+        if first == "." || first.starts_with("./") || first == "$PWD" || first.starts_with("$PWD/") {
+            continue;
+        }
+
+        // Guard against home/root scans.
+        if first == "/" || first.starts_with("/home") || first.starts_with("~") || first.starts_with("$HOME") {
+            return Err(ToolError::InvalidParams(format!(
+                "Command attempts to search outside the current working directory.\n\
+                 Working directory: {}\n\
+                 Detected: find {}\n\
+                 Suggestion: Use 'find .' (or Glob/Grep tools) to search within the project directory.",
+                working_dir.display(),
+                first
+            )));
+        }
+
+        // Absolute path: allow only if under working_dir.
+        if first.starts_with('/') && !std::path::Path::new(first).starts_with(working_dir) {
+            return Err(ToolError::InvalidParams(format!(
+                "Command attempts to search an absolute path outside the working directory.\n\
+                 Working directory: {}\n\
+                 Detected: find {}\n\
+                 Suggestion: Use 'find .' (or Glob/Grep tools) to search within the project directory.",
+                working_dir.display(),
+                first
+            )));
+        }
     }
 
     Ok(())

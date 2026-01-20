@@ -79,11 +79,7 @@ impl Tool for WriteTool {
         );
 
         // 1. Resolve file path (relative to working directory)
-        let filepath = if params.file_path.is_absolute() {
-            params.file_path
-        } else {
-            ctx.working_dir.join(&params.file_path)
-        };
+        let filepath = ctx.resolve_path(&params.file_path)?;
 
         // 2. Read old content if file exists
         let old_content = if filepath.exists() {

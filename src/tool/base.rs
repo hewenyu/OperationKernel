@@ -16,6 +16,80 @@ pub struct ToolContext {
     pub shell_manager: Arc<BackgroundShellManager>,
 }
 
+fn lexical_normalize_path(path: &std::path::Path) -> PathBuf {
+    use std::path::Component;
+
+    let mut prefix: Option<std::ffi::OsString> = None;
+    let mut is_absolute = false;
+    let mut stack: Vec<std::ffi::OsString> = Vec::new();
+
+    for component in path.components() {
+        match component {
+            Component::Prefix(p) => {
+                prefix = Some(p.as_os_str().to_owned());
+            }
+            Component::RootDir => {
+                is_absolute = true;
+                stack.clear();
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if let Some(last) = stack.last() {
+                    if last != ".." {
+                        stack.pop();
+                    } else if !is_absolute {
+                        stack.push("..".into());
+                    }
+                } else if !is_absolute {
+                    stack.push("..".into());
+                }
+            }
+            Component::Normal(s) => stack.push(s.to_owned()),
+        }
+    }
+
+    let mut normalized = PathBuf::new();
+    if let Some(p) = prefix {
+        normalized.push(p);
+    }
+    if is_absolute {
+        normalized.push(std::path::MAIN_SEPARATOR.to_string());
+    }
+    for part in stack {
+        normalized.push(part);
+    }
+    normalized
+}
+
+impl ToolContext {
+    /// Resolve a user-supplied path against `working_dir`.
+    ///
+    /// - Relative paths are joined to `working_dir`.
+    /// - Absolute paths are allowed only if they are within `working_dir`.
+    pub fn resolve_path(&self, input: &PathBuf) -> Result<PathBuf, ToolError> {
+        let root = lexical_normalize_path(&self.working_dir);
+        let resolved = if input.is_absolute() {
+            lexical_normalize_path(input)
+        } else {
+            lexical_normalize_path(&root.join(input))
+        };
+
+        // Guardrail: keep tool operations scoped to working_dir unless explicitly changed.
+        if resolved.is_absolute() && !resolved.starts_with(&root) {
+            return Err(ToolError::InvalidParams(format!(
+                "Path is outside working directory.\n\
+                 Working directory: {}\n\
+                 Requested path: {}\n\
+                 Suggestion: use a relative path (e.g. './...') or change the working directory first.",
+                root.display(),
+                resolved.display()
+            )));
+        }
+
+        Ok(resolved)
+    }
+}
+
 impl std::fmt::Debug for ToolContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ToolContext")

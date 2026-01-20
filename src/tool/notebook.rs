@@ -149,11 +149,7 @@ impl Tool for NotebookEditTool {
         );
 
         // 1. Resolve path
-        let path = if params.notebook_path.is_absolute() {
-            params.notebook_path
-        } else {
-            ctx.working_dir.join(&params.notebook_path)
-        };
+        let path = ctx.resolve_path(&params.notebook_path)?;
 
         // 2. Check file exists for replace/delete modes
         if params.edit_mode != "insert" && !path.exists() {

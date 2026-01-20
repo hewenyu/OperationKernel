@@ -145,9 +145,12 @@ async fn test_bash_validation_rejects_find_root() {
 
     match result.unwrap_err() {
         ToolError::InvalidParams(msg) => {
-            assert!(msg.contains("root directory '/'"));
+            assert!(
+                msg.contains("outside the current working directory")
+                    || msg.contains("absolute path outside the working directory")
+            );
             assert!(msg.contains("find ."));
-            assert!(msg.contains("working directory"));
+            assert!(msg.contains("Working directory"));
         }
         _ => panic!("Expected InvalidParams error for find / command"),
     }
