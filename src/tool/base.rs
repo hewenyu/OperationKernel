@@ -62,26 +62,59 @@ fn lexical_normalize_path(path: &std::path::Path) -> PathBuf {
 }
 
 impl ToolContext {
+    fn allowed_roots(&self) -> Vec<PathBuf> {
+        let mut roots = Vec::new();
+
+        roots.push(lexical_normalize_path(&self.working_dir));
+
+        // Allow system temp directory for ephemeral files (Linux/macOS).
+        let tmp = std::env::temp_dir();
+        roots.push(lexical_normalize_path(&tmp));
+
+        #[cfg(unix)]
+        {
+            roots.push(PathBuf::from("/tmp"));
+            roots.push(PathBuf::from("/var/tmp"));
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            roots.push(PathBuf::from("/private/tmp"));
+        }
+
+        // Deduplicate (best-effort).
+        roots.sort();
+        roots.dedup();
+        roots
+    }
+
     /// Resolve a user-supplied path against `working_dir`.
     ///
     /// - Relative paths are joined to `working_dir`.
-    /// - Absolute paths are allowed only if they are within `working_dir`.
+    /// - Absolute paths are allowed only if they are within `working_dir` or allowed temp roots.
     pub fn resolve_path(&self, input: &PathBuf) -> Result<PathBuf, ToolError> {
-        let root = lexical_normalize_path(&self.working_dir);
+        let working_root = lexical_normalize_path(&self.working_dir);
         let resolved = if input.is_absolute() {
             lexical_normalize_path(input)
         } else {
-            lexical_normalize_path(&root.join(input))
+            lexical_normalize_path(&working_root.join(input))
         };
 
-        // Guardrail: keep tool operations scoped to working_dir unless explicitly changed.
-        if resolved.is_absolute() && !resolved.starts_with(&root) {
+        // Guardrail: keep tool operations scoped to working_dir (plus temp roots).
+        if resolved.is_absolute()
+            && !self
+                .allowed_roots()
+                .iter()
+                .any(|root| resolved.starts_with(root))
+        {
             return Err(ToolError::InvalidParams(format!(
-                "Path is outside working directory.\n\
+                "Path is outside allowed roots.\n\
                  Working directory: {}\n\
+                 Allowed temp directory: {}\n\
                  Requested path: {}\n\
-                 Suggestion: use a relative path (e.g. './...') or change the working directory first.",
-                root.display(),
+                 Suggestion: use a relative path (e.g. './...') or put temp files under the system temp directory.",
+                working_root.display(),
+                std::env::temp_dir().display(),
                 resolved.display()
             )));
         }
